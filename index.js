@@ -1,66 +1,44 @@
-// const fs = require('fs');
-// const ipp = require('ipp');
-
-// const pdfBuffer = fs.readFileSync('./dasauto.pdf'); // Use a real PDF file
-// const printer = ipp.Printer('http://192.168.6.70:631/ipp');
-
-// const msg = {
-//   'operation-attributes-tag': {
-//     'requesting-user-name': 'NodeUser',
-//     'job-name': 'Test Print PDF',
-//     'document-format': 'application/pdf' // important!
-//   },
-//   data: pdfBuffer
-// };
-
-// printer.execute('Print-Job', msg, (err, res) => {
-//   if (err) {
-//     console.error('Print error:', err);
-//   } else {
-//     console.log('Print job response:', res);
-//   }
-// });
-
 import express from "express";
 const app = express();
 app.use(express.json());
 
-let jobQueue = []; // naive in-memory queue
+let jobQueue = [];
 
-// Your web app adds jobs here
 app.post("/api/print", (req, res) => {
-  jobQueue.push({
-    id: Date.now().toString(),
-    content: "Hello from CloudPRNT!\n\n"
-  });
-  res.json({ok:true});
+  jobQueue.push({ id: Date.now().toString(), content: "Hello from CloudPRNT!\n\n" });
+  res.json({ ok: true, size: jobQueue.length });
 });
 
-// Printer polls here
+// POLL: printer POSTs here regularly
 app.post("/cloudprnt", (req, res) => {
+  console.log("POLL", req.body); // shows status, printerMAC, etc.
   const job = jobQueue[0];
   if (!job) return res.json({ jobReady: false });
+
+  // Offer only types you can actually return on GET
   res.json({
     jobReady: true,
     jobToken: job.id,
-    mediaTypes: ["text/plain"],
+    mediaTypes: ["text/plain"],  // printer will request type=text/plain
     deleteMethod: "DELETE"
   });
 });
 
-// Printer requests the job
-app.get("/cloudprnt/job", (req, res) => {
-  const { token } = req.query;
-  const job = jobQueue.find(j => j.id === token);
+// GET JOB: printer GETs same URL with ?uid=&type=&mac=&token=
+app.get("/cloudprnt", (req, res) => {
+  const { token, type } = req.query;
+  const job = jobQueue.find(j => j.id === token) || jobQueue[0];
   if (!job) return res.sendStatus(404);
+
+  if (type && type !== "text/plain") return res.status(415).send("Unsupported media type");
   res.setHeader("Content-Type", "text/plain");
   res.send(job.content);
 });
 
-// Printer confirms completion
-app.delete("/cloudprnt/confirm", (req, res) => {
-  const { token } = req.query;
-  jobQueue = jobQueue.filter(j => j.id !== token);
+// CONFIRM: printer DELETEs same URL with ?code=OK&uid=&mac=&token=
+app.delete("/cloudprnt", (req, res) => {
+  const { token, code } = req.query;
+  if (code === "OK" && token) jobQueue = jobQueue.filter(j => j.id !== token);
   res.sendStatus(200);
 });
 
