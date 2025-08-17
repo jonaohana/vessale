@@ -1,0 +1,70 @@
+<html>
+    <head>
+      <title>Order Receipt #${order.id}</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20px; margin: 0; }
+        .receipt { max-width: 300px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 15px; }
+        .order-info { margin-bottom: 15px; border-bottom: 1px dashed #ccc; padding-bottom: 10px; }
+        .order-items { margin-bottom: 15px; }
+        .item-row { margin-bottom: 5px; }
+        .totals { margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 10px; }
+        .centered { text-align: center; }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; }
+        .text-right { text-align: right; }
+        @media print {
+          body { margin: 0; padding: 10px; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="receipt">
+        <div class="header">
+          <h2>Order Receipt</h2>
+        </div>
+        
+        <div class="order-info">
+          <p><strong>Order #:</strong> ${order.id}</p>
+          <p><strong>Date:</strong> ${orderDate}</p>
+          <p><strong>Customer:</strong> ${order.customerName || 'Guest'}</p>
+        </div>
+        
+        <div class="order-items">
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Qty</th>
+                <th class="text-right">Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${order.items?.map((item: any) => `
+                <tr>
+                  <td>${item.menuItem?.name || 'Unknown Item'}</td>
+                  <td>${item.quantity}</td>
+                  <td class="text-right">$${(item.quantity * (item.menuItem?.price || 0)).toFixed(2)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        
+        <div class="totals">
+          <p><strong>Total:</strong> $${order.total?.toFixed(2)}</p>
+        </div>
+        
+        <div class="centered">
+          <p>Thank you for your order!</p>
+        </div>
+      </div>
+      <script>
+        window.onload = function() {
+          window.print();
+          setTimeout(function() { window.close(); }, 500);
+        };
+      </script>
+    </body>
+  </html>
+`;
