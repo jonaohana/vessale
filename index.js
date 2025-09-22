@@ -28,7 +28,7 @@ const PRINTER_CONFIG = [
   // arth
   { restaurantId: "arth-printer-1", serial: "2581019070600083" }, 
   { restaurantId: "arth-printer-2", serial: "2581019090600186" }, 
-  { restaurantId: "arth-printer-2", serial: "2581019070600090" }, 
+  { restaurantId: "arth-printer-3", serial: "2581019070600090" }, 
 ];
 
 
