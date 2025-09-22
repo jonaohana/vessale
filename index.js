@@ -7,10 +7,30 @@ app.use(express.json());
  * CONFIG: map restaurants to specific printers (identified by serial and/or mac).
  */
 const PRINTER_CONFIG = [
-  { restaurantId: "local", serial: "2581021060600835"},
-  { restaurantId: "worldfamous-printer1", serial: "2581018070600248"},
-  { restaurantId: "worldfamous-printer2", serial: "2581019070600037"},
+  // local / default
+  { restaurantId: "local", serial: "2581021060600835" },
+
+  // skylers test printers (same serials as above per your snippet)
+  { restaurantId: "worldfamous-skyler1", serial: "2581018070600248" },
+  { restaurantId: "worldfamous-skyler2", serial: "2581019070600037" },
+
+  // worldfamous bell
+  { restaurantId: "worldfamous-bell-printer1", serial: "2581018080600059" },
+  { restaurantId: "worldfamous-bell-printer2", serial: "2581018070600306" }, 
+
+  // worldfamous downey
+  { restaurantId: "worldfamous-downey-printer1", serial: "2581019090600209" }, 
+  { restaurantId: "worldfamous-downey-printer2", serial: "2581018080600564" }, 
+
+  // worldfamous market
+  { restaurantId: "worldfamous-market-printer", serial: "2581018070600273" },
+
+  // arth
+  { restaurantId: "arth-printer-1", serial: "2581019070600083" }, 
+  { restaurantId: "arth-printer-2", serial: "2581019090600186" }, 
+  { restaurantId: "arth-printer-2", serial: "2581019070600090" }, 
 ];
+
 
 // quick lookups
 const serialToRestaurant = new Map(PRINTER_CONFIG.map(p => [p.serial, p.restaurantId]));
