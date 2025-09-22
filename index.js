@@ -13,6 +13,8 @@ const PRINTER_CONFIG = [
   // skylers test printers (same serials as above per your snippet)
   { restaurantId: "worldfamous-skyler1", serial: "2581018070600248" },
   { restaurantId: "worldfamous-skyler2", serial: "2581019070600037" },
+  { restaurantId: "worldfamous-printer1", serial: "2581018070600248" },
+  { restaurantId: "worldfamous-printer2", serial: "2581019070600037" },
 
   // worldfamous bell
   { restaurantId: "worldfamous-bell-printer1", serial: "2581018080600059" },
