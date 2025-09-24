@@ -17,12 +17,12 @@ const PRINTER_CONFIG = [
   { restaurantId: "worldfamous-printer2", serial: "2581019070600037" },
 
   // worldfamous bell
-  { restaurantId: "worldfamous-bell-printer1", serial: "2581018080600059" },
-  { restaurantId: "worldfamous-bell-printer2", serial: "2581018070600306" }, 
+  { restaurantId: "worldfamous-downey-printer1", serial: "2581018080600059" },
+  { restaurantId: "worldfamous-downey-printer2", serial: "2581018070600306" }, 
 
   // worldfamous downey
-  { restaurantId: "worldfamous-downey-printer1", serial: "2581019090600209" }, 
-  { restaurantId: "worldfamous-downey-printer2", serial: "2581018080600564" }, 
+  { restaurantId: "worldfamous-bell-printer1", serial: "2581019090600209" }, 
+  { restaurantId: "worldfamous-bell-printer2", serial: "2581018080600564" }, 
 
   // worldfamous market
   { restaurantId: "worldfamous-market-printer", serial: "2581018070600273" },
