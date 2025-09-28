@@ -1,4 +1,7 @@
 import express from "express";
+import puppeteer from "puppeteer";
+import fs from "fs";
+import sharp from "sharp";
 
 const app = express();
 app.use(express.json());
@@ -7,162 +10,227 @@ app.use(express.json());
  * CONFIG: map restaurants to specific printers (identified by serial and/or mac).
  */
 const PRINTER_CONFIG = [
-  // local / default
   { restaurantId: "local", serial: "2581021060600835" },
-
-  // skylers test printers (same serials as above per your snippet)
   { restaurantId: "worldfamous-skyler1", serial: "2581018070600248" },
   { restaurantId: "worldfamous-skyler2", serial: "2581019070600037" },
   { restaurantId: "worldfamous-printer1", serial: "2581018070600248" },
   { restaurantId: "worldfamous-printer2", serial: "2581019070600037" },
-
-  // worldfamous bell
   { restaurantId: "worldfamous-downey-printer1", serial: "2581018080600059" },
-  { restaurantId: "worldfamous-downey-printer2", serial: "2581018070600306" }, 
-
-  // worldfamous downey
-  { restaurantId: "worldfamous-bell-printer1", serial: "2581019090600209" }, 
-  { restaurantId: "worldfamous-bell-printer2", serial: "2581018080600564" }, 
-
-  // worldfamous market
+  { restaurantId: "worldfamous-downey-printer2", serial: "2581018070600306" },
+  { restaurantId: "worldfamous-bell-printer1", serial: "2581019090600209" },
+  { restaurantId: "worldfamous-bell-printer2", serial: "2581018080600564" },
   { restaurantId: "worldfamous-market-printer", serial: "2581018070600273" },
-
-  // arth
-  { restaurantId: "arth-printer-1", serial: "2581019070600083" }, 
-  { restaurantId: "arth-printer-2", serial: "2581019090600186" }, 
-  { restaurantId: "arth-printer-3", serial: "2581019070600090" }, 
+  { restaurantId: "arth-printer-1", serial: "2581019070600083" },
+  { restaurantId: "arth-printer-2", serial: "2581019090600186" },
+  { restaurantId: "arth-printer-3", serial: "2581019070600090" },
 ];
 
-
 // quick lookups
-const serialToRestaurant = new Map(PRINTER_CONFIG.map(p => [p.serial, p.restaurantId]));
-const macToRestaurant = new Map(PRINTER_CONFIG.filter(p => p.mac).map(p => [p.mac, p.restaurantId]));
+const serialToRestaurant = new Map(
+  PRINTER_CONFIG.map((p) => [p.serial, p.restaurantId])
+);
 
-console.log(serialToRestaurant)
-
-/**
- * Job model:
- * { id, content, status: 'queued'|'offered', restaurantId }
- */
+/** Job storage */
 function makeId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
-
-// Maintain queues per restaurant
 const jobsByRestaurant = new Map(); // restaurantId -> Job[]
-// Global token index for quick GET/DELETE lookups
 const jobIndex = new Map(); // token -> { restaurantId, job }
 
+/** Queue helpers */
 function queueFor(restaurantId) {
-  if (!jobsByRestaurant.has(restaurantId)) jobsByRestaurant.set(restaurantId, []);
+  if (!jobsByRestaurant.has(restaurantId))
+    jobsByRestaurant.set(restaurantId, []);
   return jobsByRestaurant.get(restaurantId);
 }
-
 function nextQueuedJob(serial) {
-  console.log('print w/ serial:', serial)
   const id = serialToRestaurant.get(String(serial).trim());
-
-  console.log('printer=>',  id)
-
-  if (!id) {
-    console.warn("Unknown printer serial:", serial);
-    return null;
-  }
+  if (!id) return null;
   const q = queueFor(id);
-  return q.find(j => j.status === "queued");
+  return q.find((j) => j.status === "queued");
 }
-
 function removeJob(token) {
   const ref = jobIndex.get(token);
   if (!ref) return;
   const { restaurantId, job } = ref;
   const q = queueFor(restaurantId);
-  const idx = q.findIndex(j => j.id === job.id);
+  const idx = q.findIndex((j) => j.id === job.id);
   if (idx >= 0) q.splice(idx, 1);
   jobIndex.delete(token);
 }
-
 function requeueJob(token) {
   const ref = jobIndex.get(token);
-  if (!ref) return;
-  ref.job.status = "queued";
+  if (ref) ref.job.status = "queued";
 }
 
-/** 
- * POST /api/print
- * Body: { restaurantId: string | string[], content?: string }
- * Enqueues one job for a single printer OR multiple jobs for multiple printers.
- */
-app.post("/api/print", (req, res) => {
-  const { restaurantId, content } = req.body || {};
-  if (!restaurantId) {
-    return res.status(400).json({ ok: false, error: "Missing restaurantId" });
-  }
+const base64 = fs.readFileSync("./logo.png", "base64");
 
-  // Normalize input to array
-  const restaurantIds = Array.isArray(restaurantId) ? restaurantId : [restaurantId];
+/** --- Receipt HTML generator --- */
+function generateReceiptHTML(order) {
+  return `
+  <html>
+  <head>
+    <style>
+      body {
+        font-family: monospace;
+        width: 576px; /* exact printer width */
+        margin: 0;
+        padding: 10px 10px 10px 0px;
+        margin-right: 20px;
+        font-size: 30px; 
+        margin-top: 200px;
+        margin-bottom: 300px;
+      }
+      .center { text-align: center; }
+      .bold { font-weight: bold; font-size: 35px; }
+      .line { border-top: 1px dashed #000; margin: 6px 0; }
+      .item { display: flex; justify-content: space-between; font-size: 27px; }
+      .logo { display: block; margin: 0 auto 15px auto; max-width: 200px; }
+      .subinfo { font-size: 24px; margin-top: 10px; margin-bottom: 10px; }
+    </style>
+  </head>
+  <body>
+    <!-- Logo at top -->
+    <div class="center">
+      <img class="logo" src="data:image/png;base64,${base64}" alt="Logo" />
+    </div>
+
+    <!-- Restaurant name -->
+    <div class="center bold">${order.restaurantName}</div>
+
+    <!-- Pickup info -->
+    <div class="center subinfo">
+      Pickup Driver: <span style="font-weight:bold;">${order.driverName} - ${order.driverPhone}</span><br/>
+      Provider: <span style="font-weight:bold;">${order.providerName}</span><br/>
+      Pickup Time: 12:45 PM
+    </div>
+
+    <div class="line"></div>
+
+    <!-- Items -->
+    ${order.items
+      .map(
+        (item) => `
+      <div class="item">
+        <span>${item.quantity}x ${item.name}</span>
+        <span>$${(item.quantity * item.price).toFixed(2)}</span>
+      </div>
+    `
+      )
+      .join("")}
+
+    <div class="line"></div>
+
+    <!-- Fees -->
+    ${
+      order.deliveryFee
+        ? `<div class="item"><span>Delivery Fee</span><span>$${order.deliveryFee.toFixed(
+            2
+          )}</span></div>`
+        : ""
+    }
+    ${
+      order.serviceFee
+        ? `<div class="item"><span>Service Fee</span><span>$${order.serviceFee.toFixed(
+            2
+          )}</span></div>`
+        : ""
+    }
+    ${
+      order.processingFee
+        ? `<div class="item"><span>Processing Fee</span><span>$${order.processingFee.toFixed(
+            2
+          )}</span></div>`
+        : ""
+    }
+
+    <div class="line"></div>
+    <div class="item bold"><span>TOTAL</span><span>$${order.total.toFixed(
+      2
+    )}</span></div>
+
+    <div class="center">Thank you!</div>
+  </body>
+  </html>
+  `;
+}
+
+/** --- Convert HTML to PNG + optimize --- */
+async function htmlToOptimizedPng(html) {
+  const browser = await puppeteer.launch({ headless: "new" });
+  const page = await browser.newPage();
+  await page.setContent(html, { waitUntil: "networkidle0" });
+
+  const height = await page.evaluate(() => document.body.scrollHeight);
+  const rawBuffer = await page.screenshot({
+    type: "png",
+    clip: { x: 0, y: 0, width: 576, height },
+  });
+  await browser.close();
+
+  // Optimize PNG: grayscale, 2-color palette, compressed
+  return await sharp(rawBuffer)
+    .resize({ width: 565 })
+    .grayscale()
+    .threshold(128)
+    .png({ compressionLevel: 3, palette: true })
+    .toBuffer();
+}
+
+/** --- Append StarPRNT feed + cut command --- */
+function appendFeedAndCut(buffer) {
+  const FEED_AND_CUT = Buffer.from([0x1b, 0x64, 0x02]); // ESC d 2
+  return Buffer.concat([buffer, FEED_AND_CUT]);
+}
+
+/** --- API Routes --- */
+app.post("/api/print", async (req, res) => {
+  const { restaurantId, order } = req.body || {};
+  if (!restaurantId)
+    return res.status(400).json({ ok: false, error: "Missing restaurantId" });
+
+  const restaurantIds = Array.isArray(restaurantId)
+    ? restaurantId
+    : [restaurantId];
+
+  const html = generateReceiptHTML(order || {});
+  const optimizedBuffer = await htmlToOptimizedPng(html);
+  const finalBuffer = appendFeedAndCut(optimizedBuffer);
 
   const tokens = [];
 
   for (const rid of restaurantIds) {
-    const knownRestaurant = PRINTER_CONFIG.some(p => p.restaurantId === rid);
+    const knownRestaurant = PRINTER_CONFIG.some((p) => p.restaurantId === rid);
     if (!knownRestaurant) {
-      return res.status(404).json({ ok: false, error: `Unknown restaurantId: ${rid}` });
+      return res
+        .status(404)
+        .json({ ok: false, error: `Unknown restaurantId: ${rid}` });
     }
 
     const id = makeId();
-    const job = {
-      id,
-      content: typeof content === "string" && content.length > 0
-        ? content
-        : `Hello from CloudPRNT!\n\n ${restaurantIds}`,
-      status: "queued",
-      restaurantId: rid,
-    };
-
+    const job = { id, content: finalBuffer, status: "queued", restaurantId: rid };
     queueFor(rid).push(job);
     jobIndex.set(id, { restaurantId: rid, job });
     tokens.push(id);
   }
 
-  res.json({ ok: true, tokens, queueSizes: restaurantIds.map(rid => ({ restaurantId: rid, size: queueFor(rid).length })) });
+  res.json({ ok: true, tokens });
 });
 
 /** PRINTER POLL */
 app.post("/cloudprnt", (req, res) => {
   const serial = req.headers["x-star-serial-number"];
-
-  console.log('serial', serial)
-
-  let restaurantId = null;
-  if (serial && serialToRestaurant.has(String(serial))) {
-    restaurantId = serialToRestaurant.get(String(serial));
-  } else if (mac && macToRestaurant.has(String(mac))) {
-    restaurantId = macToRestaurant.get(String(mac));
-  }
-
-  console.log('polling with =>', restaurantId)
-
-  if (!restaurantId) {
-    return res.json({ jobReady: false });
-  }
+  const restaurantId = serialToRestaurant.get(String(serial).trim());
+  if (!restaurantId) return res.json({ jobReady: false });
 
   const job = nextQueuedJob(serial);
-
-  console.log('job')
-
-  if (!job) {
-    return res.json({ jobReady: false });
-  }
-
-  console.log('here')
+  if (!job) return res.json({ jobReady: false });
 
   job.status = "offered";
-
   res.json({
     jobReady: true,
     jobToken: job.id,
-    mediaTypes: ["text/plain"],
+    mediaTypes: ["image/png"],
     deleteMethod: "DELETE",
   });
 });
@@ -171,38 +239,32 @@ app.post("/cloudprnt", (req, res) => {
 app.get("/cloudprnt", (req, res) => {
   const { token, type } = req.query;
   if (!token) return res.status(400).send("Missing token");
-  if (type && type !== "text/plain") return res.status(415).send("Unsupported media type");
+  if (type !== "image/png")
+    return res.status(415).send("Unsupported media type");
 
   const ref = jobIndex.get(String(token));
   if (!ref) return res.sendStatus(404);
 
-  res.setHeader("Content-Type", "text/plain");
+  res.setHeader("Content-Type", "image/png");
   res.send(ref.job.content);
 });
 
 /** HEALTHCHECK */
-app.get("/health", (_req, res) => {
-  res.json({ ok: true });
-});
+app.get("/health", (_req, res) => res.json({ ok: true }));
 
-/** PRINTER CONFIRMATION */
+/** CONFIRMATION */
 app.delete("/cloudprnt", (req, res) => {
   const { token, code } = req.query;
   if (!token) return res.status(400).send("Missing token");
 
   const codeStr = String(code || "").toUpperCase();
-  const success =
-    codeStr === "OK" ||
-    codeStr === "200 OK" ||
-    codeStr === "200" ||
-    codeStr.startsWith("2");
+  const success = codeStr === "OK" || codeStr.startsWith("2");
+  if (success) removeJob(String(token));
+  else requeueJob(String(token));
 
-  if (success) {
-    removeJob(String(token));
-  } else {
-    requeueJob(String(token));
-  }
   res.sendStatus(200);
 });
 
-app.listen(8080, () => console.log("CloudPRNT server running on :8080"));
+app.listen(8080, () =>
+  console.log("CloudPRNT server running with optimized PNG + feed/cut on :8080")
+);
