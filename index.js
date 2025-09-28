@@ -159,11 +159,18 @@ function generateReceiptHTML(order) {
   `;
 }
 
-/** --- Convert HTML to PNG + optimize --- */
+function getChromiumPath() {
+  const candidates = ["/usr/bin/chromium", "/usr/bin/chromium-browser"];
+  for (const path of candidates) {
+    if (fs.existsSync(path)) return path;
+  }
+  return null;
+}
+
 async function htmlToOptimizedPng(html) {
   const browser = await puppeteer.launch({
-    headless: true, // "new" sometimes causes issues, use true for stability
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
+    headless: true,
+    executablePath: getChromiumPath() || process.env.PUPPETEER_EXECUTABLE_PATH,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
