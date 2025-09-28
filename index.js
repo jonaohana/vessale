@@ -100,8 +100,12 @@ function generateReceiptHTML(order) {
 
     <!-- Pickup info -->
     <div class="center subinfo">
-      Pickup Driver: <span style="font-weight:bold;">${order.driverName} - ${order.driverPhone}</span><br/>
-      Provider: <span style="font-weight:bold;">${order.providerName}</span><br/>
+      Pickup Driver: <span style="font-weight:bold;">${order.driverName} - ${
+    order.driverPhone
+  }</span><br/>
+      Provider: <span style="font-weight:bold;">${
+        order.providerName
+      }</span><br/>
       Pickup Time: 12:45 PM
     </div>
 
@@ -157,7 +161,18 @@ function generateReceiptHTML(order) {
 
 /** --- Convert HTML to PNG + optimize --- */
 async function htmlToOptimizedPng(html) {
-  const browser = await puppeteer.launch({ headless: "new" });
+  const browser = await puppeteer.launch({
+    headless: true, // "new" sometimes causes issues, use true for stability
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--single-process",
+    ],
+  });
+
   const page = await browser.newPage();
   await page.setContent(html, { waitUntil: "networkidle0" });
 
@@ -208,7 +223,12 @@ app.post("/api/print", async (req, res) => {
     }
 
     const id = makeId();
-    const job = { id, content: finalBuffer, status: "queued", restaurantId: rid };
+    const job = {
+      id,
+      content: finalBuffer,
+      status: "queued",
+      restaurantId: rid,
+    };
     queueFor(rid).push(job);
     jobIndex.set(id, { restaurantId: rid, job });
     tokens.push(id);
