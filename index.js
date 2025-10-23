@@ -106,19 +106,20 @@ function generateReceiptHTML(order) {
       Provider: <span style="font-weight:bold;">${
         order.providerName
       }</span><br/>
-      Pickup Time: ${order.estimatePickupTime}
+      Pickup Time: ${
+        order.estimatePickupTime
+      }
     </div>
 
     <div class="line"></div>
 
       <!-- Pickup info -->
     <div class="center subinfo">
-      Delivery Address: <span style="font-weight:bold;">${
-        order.customerDetails.name
-      } - ${order.customerDetails.address},  ${order.customerDetails.state},  ${
-    order.customerDetails.zip
-  }
-  </span><br/>
+      Delivery Address: <span style="font-weight:bold;">${order.customerDetails.name} - ${
+    order.customerDetails.address},  ${
+    order.customerDetails.state},  ${
+    order.customerDetails.zip}
+  }</span><br/>
     </div>
 
     <div class="line"></div>
@@ -128,11 +129,11 @@ function generateReceiptHTML(order) {
       .map(
         (item) => `
       <div class="item">
-        <div class="item">
-          <span>${item.quantity}x ${item.name}</span>
-          <span>$${(item.quantity * item.price).toFixed(2)}</span>
-        </div>
-        <div>${item.specialInstructions || ""}</div>
+        <span>${item.quantity}x ${item.name}</span>
+        <span>$${(item.quantity * item.price).toFixed(2)}</span>
+      </div>
+      <div>
+        <span>${item.specialInstructions || ""}</span>
       </div>
     `
       )
