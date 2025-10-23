@@ -118,7 +118,7 @@ function generateReceiptHTML(order) {
       } - ${order.customerDetails.address},  ${order.customerDetails.state},  ${
     order.customerDetails.zip
   }
-  }</span><br/>
+  </span><br/>
     </div>
 
     <div class="line"></div>
