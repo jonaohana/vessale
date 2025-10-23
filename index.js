@@ -128,11 +128,11 @@ function generateReceiptHTML(order) {
       .map(
         (item) => `
       <div class="item">
-       <div>
-         <span>${item.quantity}x ${item.name}</span>
+        <div class="item">
+          <span>${item.quantity}x ${item.name}</span>
           <span>$${(item.quantity * item.price).toFixed(2)}</span>
-       </div>
-       <div>${item.specialInstructions || ""}</div>
+        </div>
+        <div>${item.specialInstructions || ""}</div>
       </div>
     `
       )
