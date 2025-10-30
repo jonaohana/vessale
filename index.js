@@ -87,6 +87,7 @@ function generateReceiptHTML(order) {
       .item { display: flex; justify-content: space-between; font-size: 27px; }
       .logo { display: block; margin: 0 auto 15px auto; max-width: 200px; }
       .subinfo { font-size: 24px; margin-top: 10px; margin-bottom: 10px; }
+      .specialInstructions { font-size: 22px; font-style: italic; margin-top: 8px; border: 1px solid #000; padding: 4px; }
     </style>
   </head>
   <body>
@@ -132,9 +133,11 @@ function generateReceiptHTML(order) {
         <span>${item.quantity}x ${item.name}</span>
         <span>$${(item.quantity * item.price).toFixed(2)}</span>
       </div>
-      <div>
-        <span>${item.specialInstructions || ""}</span>
-      </div>
+     ${
+      item.specialInstructions
+        ? `<div class="specialInstructions">special instructions: ${item.specialInstructions}</div>`
+        : ""
+    }
     `
       )
       .join("")}
@@ -168,7 +171,7 @@ function generateReceiptHTML(order) {
     <div class="item bold"><span>TOTAL</span><span>$${order.total.toFixed(
       2
     )}</span></div>
-
+    <div class="center">${order.deliveryInstructions || ""}</div>
     <div class="center">Thank you!</div>
   </body>
   </html>
