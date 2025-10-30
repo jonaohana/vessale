@@ -171,7 +171,11 @@ function generateReceiptHTML(order) {
     <div class="item bold"><span>TOTAL</span><span>$${order.total.toFixed(
       2
     )}</span></div>
-    <div class="center">${order.deliveryInstructions || ""}</div>
+   ${
+      item.deliveryInstructions
+        ? `<div class="specialInstructions">special delivery instructions: ${item.deliveryInstructions}</div>`
+        : ""
+    }
     <div class="center">Thank you!</div>
   </body>
   </html>
