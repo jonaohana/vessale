@@ -87,7 +87,7 @@ function generateReceiptHTML(order) {
       .item { display: flex; justify-content: space-between; font-size: 27px; }
       .logo { display: block; margin: 0 auto 15px auto; max-width: 200px; }
       .subinfo { font-size: 24px; margin-top: 10px; margin-bottom: 10px; }
-      .specialInstructions { font-size: 22px; font-style: italic; margin-top: 8px; border: 1px solid #000; padding: 4px; }
+      .specialInstructions { font-size: 22px; font-style: italic; margin-top: 8px; maargin-bottom: 8px; border: 1px solid #000; padding: 4px; }
     </style>
   </head>
   <body>
