@@ -63,7 +63,7 @@ function requeueJob(token) {
   if (ref) ref.job.status = "queued";
 }
 
-const base64 = fs.readFileSync("./logo.png", "base64");
+const base64 = fs.readFileSync("./logo-backup.png", "base64");
 
 /** --- Receipt HTML generator --- */
 function generateReceiptHTML(order) {
