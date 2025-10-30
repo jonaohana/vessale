@@ -172,8 +172,8 @@ function generateReceiptHTML(order) {
       2
     )}</span></div>
    ${
-      item.deliveryInstructions
-        ? `<div class="specialInstructions">special delivery instructions: ${item.deliveryInstructions}</div>`
+      order.deliveryInstructions
+        ? `<div class="specialInstructions">special delivery instructions: ${order.deliveryInstructions}</div>`
         : ""
     }
     <div class="center">Thank you!</div>
