@@ -65,19 +65,41 @@ function requeueJob(token) {
 
 const base64 = fs.readFileSync("./logo-backup.png", "base64");
 
-/** --- Receipt HTML generator --- */
-function generateReceiptHTML(order) {
+function generateReceiptHTML(order = {}) {
+  const restaurantName = order.restaurantName || "";
+  const driverName = order.driverName || "";
+  const driverPhone = order.driverPhone || "";
+  const providerName = order.providerName || "";
+  const estimatePickupTime = order.estimatePickupTime || "";
+
+  const customerName = order.customerDetails?.name || "";
+  const customerAddress = order.customerDetails?.address || "";
+  const customerState = order.customerDetails?.state || "";
+  const customerZip = order.customerDetails?.zip || "";
+
+  const items = Array.isArray(order.items) ? order.items : [];
+
+  const deliveryFee =
+    typeof order.deliveryFee === "number" ? order.deliveryFee : null;
+  const serviceFee =
+    typeof order.serviceFee === "number" ? order.serviceFee : null;
+  const processingFee =
+    typeof order.processingFee === "number" ? order.processingFee : null;
+  const total =
+    typeof order.total === "number" ? order.total : 0;
+
+  const deliveryInstructions = order.deliveryInstructions || "";
+
   return `
   <html>
   <head>
     <style>
       body {
         font-family: monospace;
-        width: 576px; /* exact printer width */
+        width: 576px;
         margin: 0;
         padding: 10px 10px 10px 0px;
-        margin-right: 20px;
-        font-size: 30px; 
+        font-size: 30px;
         margin-top: 200px;
         margin-bottom: 300px;
       }
@@ -87,95 +109,58 @@ function generateReceiptHTML(order) {
       .item { display: flex; justify-content: space-between; font-size: 27px; }
       .logo { display: block; margin: 0 auto 15px auto; max-width: 200px; }
       .subinfo { font-size: 24px; margin-top: 10px; margin-bottom: 10px; }
-      .specialInstructions { font-size: 22px; font-style: italic; margin-top: 8px; maargin-bottom: 8px; border: 1px solid #000; padding: 4px; }
+      .specialInstructions { font-size: 22px; font-style: italic; margin-top: 8px; border: 1px solid #000; padding: 4px; }
     </style>
   </head>
   <body>
-    <!-- Logo at top -->
     <div class="center">
       <img class="logo" src="data:image/png;base64,${base64}" alt="Logo" />
     </div>
 
-    <!-- Restaurant name -->
-    <div class="center bold">${order.restaurantName}</div>
+    <div class="center bold">${restaurantName}</div>
 
-    <!-- Pickup info -->
     <div class="center subinfo">
-      Pickup Driver: <span style="font-weight:bold;">${order.driverName} - ${
-    order.driverPhone
-  }</span><br/>
-      Provider: <span style="font-weight:bold;">${
-        order.providerName
-      }</span><br/>
-      Pickup Time: ${
-        order.estimatePickupTime
-      }
+      Pickup Driver: <span style="font-weight:bold;">${driverName} - ${driverPhone}</span><br/>
+      Provider: <span style="font-weight:bold;">${providerName}</span><br/>
+      Pickup Time: ${estimatePickupTime}
     </div>
 
     <div class="line"></div>
 
-      <!-- Pickup info -->
     <div class="center subinfo">
-      Delivery Address: <span style="font-weight:bold;">${order.customerDetails.name} - ${
-    order.customerDetails.address},  ${
-    order.customerDetails.state},  ${
-    order.customerDetails.zip}
-  </span><br/>
+      Delivery Address: <span style="font-weight:bold;">${customerName} - ${customerAddress}, ${customerState}, ${customerZip}</span>
     </div>
 
     <div class="line"></div>
 
-    <!-- Items -->
-    ${order.items
-      .map(
-        (item) => `
-      <div class="item">
-        <span>${item.quantity}x ${item.name}</span>
-        <span>$${(item.quantity * item.price).toFixed(2)}</span>
-      </div>
-     ${
-      item.specialInstructions
-        ? `<div class="specialInstructions">special instructions: ${item.specialInstructions}</div>`
-        : ""
-    }
-    `
-      )
+    ${items
+      .map((item) => {
+        const name = item?.name || "Item";
+        const quantity = item?.quantity || 1;
+        const price = typeof item?.price === "number" ? item.price : 0;
+        const special = item?.specialInstructions || "";
+
+        return `
+          <div class="item">
+            <span>${quantity}x ${name}</span>
+            <span>$${(quantity * price).toFixed(2)}</span>
+          </div>
+          ${special ? `<div class="specialInstructions">special instructions: ${special}</div>` : ""}
+        `;
+      })
       .join("")}
 
     <div class="line"></div>
 
-    <!-- Fees -->
-    ${
-      order.deliveryFee
-        ? `<div class="item"><span>Delivery Fee</span><span>$${order.deliveryFee.toFixed(
-            2
-          )}</span></div>`
-        : ""
-    }
-    ${
-      order.serviceFee
-        ? `<div class="item"><span>Service Fee</span><span>$${order.serviceFee.toFixed(
-            2
-          )}</span></div>`
-        : ""
-    }
-    ${
-      order.processingFee
-        ? `<div class="item"><span>Processing Fee</span><span>$${order.processingFee.toFixed(
-            2
-          )}</span></div>`
-        : ""
-    }
+    ${deliveryFee !== null ? `<div class="item"><span>Delivery Fee</span><span>$${deliveryFee.toFixed(2)}</span></div>` : ""}
+    ${serviceFee !== null ? `<div class="item"><span>Service Fee</span><span>$${serviceFee.toFixed(2)}</span></div>` : ""}
+    ${processingFee !== null ? `<div class="item"><span>Processing Fee</span><span>$${processingFee.toFixed(2)}</span></div>` : ""}
 
     <div class="line"></div>
-    <div class="item bold"><span>TOTAL</span><span>$${order.total.toFixed(
-      2
-    )}</span></div>
-   ${
-      order.deliveryInstructions
-        ? `<div class="specialInstructions">special delivery instructions: ${order.deliveryInstructions}</div>`
-        : ""
-    }
+    <div class="item bold"><span>TOTAL</span><span>$${total.toFixed(2)}</span></div>
+
+    ${deliveryInstructions ? `<div class="specialInstructions">special delivery instructions: ${deliveryInstructions}</div>` : ""}
+
     <div class="center">Thank you!</div>
   </body>
   </html>
