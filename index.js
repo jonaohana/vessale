@@ -11,6 +11,7 @@ app.use(express.json());
  */
 const PRINTER_CONFIG = [
   { restaurantId: "local", serial: "2581021060600835" },
+  { restaurantId: "jona-test", serial: "2581021060600835" },
   { restaurantId: "worldfamous-skyler1", serial: "2581018070600248" },
   { restaurantId: "worldfamous-skyler2", serial: "2581019070600037" },
   { restaurantId: "worldfamous-printer1", serial: "2581018070600248" },
