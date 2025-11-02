@@ -215,64 +215,41 @@ function appendFeedAndCut(buffer) {
 
 /** --- API Routes --- */
 app.post("/api/print", async (req, res) => {
-  // hard timeout for this route so sockets don’t hang forever
-  res.setTimeout(15_000, () => {
-    console.error("print route timed out");
-    try { res.status(504).json({ ok: false, error: "Timeout" }); } catch {}
-  });
-
   const { restaurantId, order } = req.body || {};
-  if (!restaurantId) return res.status(400).json({ ok: false, error: "Missing restaurantId" });
+  if (!restaurantId)
+    return res.status(400).json({ ok: false, error: "Missing restaurantId" });
 
-  const restaurantIds = Array.isArray(restaurantId) ? restaurantId : [restaurantId];
+  const restaurantIds = Array.isArray(restaurantId)
+    ? restaurantId
+    : [restaurantId];
 
-  // validate all ids first to avoid partial success
-  const unknown = restaurantIds.filter(
-    (rid) => !PRINTER_CONFIG.some((p) => p.restaurantId === rid)
-  );
-  if (unknown.length) {
-    return res.status(404).json({ ok: false, error: `Unknown restaurantId(s): ${unknown.join(", ")}` });
-  }
+  const html = generateReceiptHTML(order || {});
+  const optimizedBuffer = await htmlToOptimizedPng(html);
+  const finalBuffer = appendFeedAndCut(optimizedBuffer);
 
-  // create empty jobs now, respond fast
   const tokens = [];
+
   for (const rid of restaurantIds) {
+    const knownRestaurant = PRINTER_CONFIG.some((p) => p.restaurantId === rid);
+    if (!knownRestaurant) {
+      return res
+        .status(404)
+        .json({ ok: false, error: `Unknown restaurantId: ${rid}` });
+    }
+
     const id = makeId();
-    const job = { id, content: null, status: "queued", restaurantId: rid };
+    const job = {
+      id,
+      content: finalBuffer,
+      status: "queued",
+      restaurantId: rid,
+    };
     queueFor(rid).push(job);
     jobIndex.set(id, { restaurantId: rid, job });
     tokens.push(id);
   }
 
-  // ACK immediately so caller/Lambda can continue/log
-  res.status(202).json({ ok: true, tokens });
-
-  // background render
-  (async () => {
-    try {
-      // light defensive bound on order size (optional)
-      const safeOrder = order && typeof order === "object" ? order : {};
-      const html = generateReceiptHTML(safeOrder);
-      const optimizedBuffer = await htmlToOptimizedPng(html);   // this may be slow
-      const finalBuffer = appendFeedAndCut(optimizedBuffer);
-
-      for (const token of tokens) {
-        const ref = jobIndex.get(token);
-        if (ref?.job) {
-          ref.job.content = finalBuffer;  // mark as ready
-          ref.job.status = "queued";
-        }
-      }
-      console.log("print jobs ready:", tokens);
-    } catch (e) {
-      console.error("background print render failed", e);
-      // Optionally mark jobs as failed so /cloudprnt can skip or retry later
-      for (const token of tokens) {
-        const ref = jobIndex.get(token);
-        if (ref?.job) ref.job.status = "failed";
-      }
-    }
-  })();
+  res.json({ ok: true, tokens });
 });
 
 /** PRINTER POLL */
