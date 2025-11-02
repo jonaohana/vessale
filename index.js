@@ -281,6 +281,8 @@ app.get("/cloudprnt", (req, res) => {
   const ref = jobIndex.get(String(token));
   if (!ref) return res.sendStatus(404);
 
+  console.log('Serving job', token, 'for restaurant', ref.restaurantId);
+
   res.setHeader("Content-Type", "image/png");
   res.send(ref.job.content);
 });
