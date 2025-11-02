@@ -210,25 +210,27 @@ async function getBrowser() {
   return browserPromise;
 }
 
-// Render HTML -> raw PNG fast
 async function renderHtmlToPngFast(html) {
   const browser = await getBrowser();
   return renderLimit.run(async () => {
     const page = await browser.newPage();
     try {
-      await page.setViewport({ width: 576, height: 1200, deviceScaleFactor: 1 });
-      // data: URL is faster / deterministic
+      // Important: Give Chrome stable layout width and disable scaling
+      await page.setViewport({ width: 576, height: 800, deviceScaleFactor: 1 });
+
       await page.goto("data:text/html;charset=utf-8," + encodeURIComponent(html), {
-        waitUntil: "domcontentloaded", // faster than networkidle0
+        waitUntil: "domcontentloaded",
         timeout: 15000,
       });
-      const height = await page.evaluate(() => Math.min(document.body.scrollHeight, 8000));
+
+      // ✅ Full-page screenshot (no clipping / no height measurement)
       const buf = await page.screenshot({
         type: "png",
-        clip: { x: 0, y: 0, width: 576, height },
-        captureBeyondViewport: false,
-        optimizeForSpeed: true, // puppeteer supports this flag in newer versions
+        fullPage: true,         // <---- key
+        captureBeyondViewport: true,
+        optimizeForSpeed: true,
       });
+
       return buf;
     } finally {
       await page.close().catch(() => {});
