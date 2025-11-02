@@ -132,6 +132,7 @@ function generateReceiptHTML(order = {}) {
     <!-- Top info: show Provider always; hide Driver + Pickup Time when pickup -->
     <div class="center subinfo">
       ${!isPickup ? `<span>Pickup Driver: <span style="font-weight:bold;">${driverName} - ${driverPhone}</span></span><br/>` : ``}
+      ${isPickup ? `<span>Pickup <span style="font-weight:bold;">${customerName}</span></span><br/>` : ``}
       ${providerName ? `Provider: <span style="font-weight:bold;">${providerName}</span><br/>` : ``}
       ${!isPickup ? `Pickup Time: ${estimatePickupTime}` : ``}
     </div>
