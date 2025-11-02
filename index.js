@@ -236,18 +236,22 @@ async function renderHtmlToPngFast(html) {
   });
 }
 
-// Fast Sharp pipeline (monochrome receipt)
+// Fast Sharp pipeline (monochrome receipt) — version-safe
 function rasterForStar(rawBuffer) {
+  // effort must be 1..10 on many sharp versions
+  const PNG_OPTS = {
+    palette: true,
+    // 'colors' is the official key; 'colours' was accepted historically.
+    colors: 2,
+    compressionLevel: 2,   // 0..9 (2 is fast)
+    effort: 1,             // 1..10 (1 is fastest); remove or bump if needed
+  };
+
   return sharp(rawBuffer, { failOn: "none" })
     .resize({ width: 565, kernel: "nearest" })
     .grayscale()
     .threshold(160)
-    .png({
-      palette: true,
-      colours: 2,
-      effort: 0,
-      compressionLevel: 2,
-    })
+    .png(PNG_OPTS)
     .toBuffer();
 }
 
