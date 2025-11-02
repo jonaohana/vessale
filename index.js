@@ -80,6 +80,7 @@ function generateReceiptHTML(order = {}) {
   const driverPhone = order.driverPhone || "";
   const providerName = order.providerName || "";
   const estimatePickupTime = order.estimatePickupTime || "";
+  const isPickup = !!order.pickup; // <— key
 
   const customerName = order.customerDetails?.name || "";
   const customerAddress = order.customerDetails?.address || "";
@@ -128,79 +129,54 @@ function generateReceiptHTML(order = {}) {
 
     <div class="center bold">${restaurantName}</div>
 
+    <!-- Top info: show Provider always; hide Driver + Pickup Time when pickup -->
     <div class="center subinfo">
-      Pickup Driver: <span style="font-weight:bold;">${driverName} - ${driverPhone}</span><br/>
-      Provider: <span style="font-weight:bold;">${providerName}</span><br/>
-      Pickup Time: ${estimatePickupTime}
+      ${!isPickup ? `<span>Pickup Driver: <span style="font-weight:bold;">${driverName} - ${driverPhone}</span></span><br/>` : ``}
+      ${providerName ? `Provider: <span style="font-weight:bold;">${providerName}</span><br/>` : ``}
+      ${!isPickup ? `Pickup Time: ${estimatePickupTime}` : ``}
     </div>
 
     <div class="line"></div>
 
-    <div class="center subinfo">
-      Delivery Address:
-      <span style="font-weight:bold;">
-        ${customerName} — ${customerAddress}${
-    customerCity ? ", " + customerCity : ""
-  }, ${customerState}, ${customerZip}
-      </span>
-    </div>
+    <!-- Delivery address: hide entirely on pickup -->
+    ${!isPickup ? `
+      <div class="center subinfo">
+        Delivery Address:
+        <span style="font-weight:bold;">
+          ${customerName} — ${customerAddress}${customerCity ? ", " + customerCity : ""}, ${customerState}, ${customerZip}
+        </span>
+      </div>
+      <div class="line"></div>
+    ` : ``}
 
-    <div class="line"></div>
-
-    ${items
-      .map((item) => {
-        const name = item?.name || "Item";
-        const quantity = item?.quantity || 1;
-        const price = typeof item?.price === "number" ? item.price : 0;
-        const special = item?.specialInstructions || "";
-        return `
+    ${items.map(item => {
+      const name = item?.name || "Item";
+      const quantity = item?.quantity || 1;
+      const price = typeof item?.price === "number" ? item.price : 0;
+      const special = item?.specialInstructions || "";
+      return `
         <div class="item">
           <span>${quantity}x ${name}</span>
           <span>$${(quantity * price).toFixed(2)}</span>
         </div>
-        ${
-          special
-            ? `<div class="specialInstructions">special instructions: ${special}</div>`
-            : ""
-        }
+        ${special ? `<div class="specialInstructions">special instructions: ${special}</div>` : ""}
       `;
-      })
-      .join("")}
+    }).join("")}
 
     <div class="line"></div>
 
-    ${
-      deliveryFee !== null
-        ? `<div class="item"><span>Delivery Fee</span><span>$${deliveryFee.toFixed(
-            2
-          )}</span></div>`
-        : ""
-    }
-    ${
-      serviceFee !== null
-        ? `<div class="item"><span>Service Fee</span><span>$${serviceFee.toFixed(
-            2
-          )}</span></div>`
-        : ""
-    }
-    ${
-      processingFee !== null
-        ? `<div class="item"><span>Processing Fee</span><span>$${processingFee.toFixed(
-            2
-          )}</span></div>`
-        : ""
-    }
+    <!-- Fees: hide delivery fee on pickup -->
+    ${(!isPickup && deliveryFee !== null) ? `<div class="item"><span>Delivery Fee</span><span>$${deliveryFee.toFixed(2)}</span></div>` : ""}
+    ${serviceFee !== null ? `<div class="item"><span>Service Fee</span><span>$${serviceFee.toFixed(2)}</span></div>` : ""}
+    ${processingFee !== null ? `<div class="item"><span>Processing Fee</span><span>$${processingFee.toFixed(2)}</span></div>` : ""}
 
     <div class="line"></div>
-    <div class="item bold"><span>TOTAL</span><span>$${total.toFixed(
-      2
-    )}</span></div>
+    <div class="item bold"><span>TOTAL</span><span>$${total.toFixed(2)}</span></div>
 
-    ${
-      deliveryInstructions
-        ? `<div class="specialInstructions">special delivery instructions: ${deliveryInstructions}</div>`
-        : ""
-    }
+    <!-- Special delivery instructions: hide on pickup -->
+    ${(!isPickup && deliveryInstructions)
+      ? `<div class="specialInstructions">special delivery instructions: ${deliveryInstructions}</div>`
+      : ""}
 
     <div class="center">Thank you!</div>
   </body>
