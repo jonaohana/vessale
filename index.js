@@ -27,7 +27,9 @@ const PRINTER_CONFIG = [
   { restaurantId: "arth-printer-3", serial: "2581019070600090" },
 ];
 
-const serialToRestaurant = new Map(PRINTER_CONFIG.map(p => [p.serial, p.restaurantId]));
+const serialToRestaurant = new Map(
+  PRINTER_CONFIG.map((p) => [p.serial, p.restaurantId])
+);
 
 // --------------------------
 // In-memory Job Store
@@ -35,11 +37,12 @@ const serialToRestaurant = new Map(PRINTER_CONFIG.map(p => [p.serial, p.restaura
 function makeId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
-const jobsByRestaurant = new Map();   // restaurantId -> Job[]
-const jobIndex = new Map();           // token -> { restaurantId, job }
+const jobsByRestaurant = new Map(); // restaurantId -> Job[]
+const jobIndex = new Map(); // token -> { restaurantId, job }
 
 function queueFor(restaurantId) {
-  if (!jobsByRestaurant.has(restaurantId)) jobsByRestaurant.set(restaurantId, []);
+  if (!jobsByRestaurant.has(restaurantId))
+    jobsByRestaurant.set(restaurantId, []);
   return jobsByRestaurant.get(restaurantId);
 }
 function nextQueuedJob(serial) {
@@ -47,14 +50,14 @@ function nextQueuedJob(serial) {
   if (!id) return null;
   const q = queueFor(id);
   // Only offer jobs with content ready
-  return q.find(j => j.status === "queued" && j.content);
+  return q.find((j) => j.status === "queued" && j.content);
 }
 function removeJob(token) {
   const ref = jobIndex.get(token);
   if (!ref) return;
   const { restaurantId, job } = ref;
   const q = queueFor(restaurantId);
-  const idx = q.findIndex(j => j.id === job.id);
+  const idx = q.findIndex((j) => j.id === job.id);
   if (idx >= 0) q.splice(idx, 1);
   jobIndex.delete(token);
 }
@@ -86,9 +89,12 @@ function generateReceiptHTML(order = {}) {
 
   const items = Array.isArray(order.items) ? order.items : [];
 
-  const deliveryFee = typeof order.deliveryFee === "number" ? order.deliveryFee : null;
-  const serviceFee = typeof order.serviceFee === "number" ? order.serviceFee : null;
-  const processingFee = typeof order.processingFee === "number" ? order.processingFee : null;
+  const deliveryFee =
+    typeof order.deliveryFee === "number" ? order.deliveryFee : null;
+  const serviceFee =
+    typeof order.serviceFee === "number" ? order.serviceFee : null;
+  const processingFee =
+    typeof order.processingFee === "number" ? order.processingFee : null;
   const total = typeof order.total === "number" ? order.total : 0;
 
   const deliveryInstructions = order.deliveryInstructions || "";
@@ -133,36 +139,68 @@ function generateReceiptHTML(order = {}) {
     <div class="center subinfo">
       Delivery Address:
       <span style="font-weight:bold;">
-        ${customerName} — ${customerAddress}${customerCity ? ", " + customerCity : ""}, ${customerState}, ${customerZip}
+        ${customerName} — ${customerAddress}${
+    customerCity ? ", " + customerCity : ""
+  }, ${customerState}, ${customerZip}
       </span>
     </div>
 
     <div class="line"></div>
 
-    ${items.map(item => {
-      const name = item?.name || "Item";
-      const quantity = item?.quantity || 1;
-      const price = typeof item?.price === "number" ? item.price : 0;
-      const special = item?.specialInstructions || "";
-      return `
+    ${items
+      .map((item) => {
+        const name = item?.name || "Item";
+        const quantity = item?.quantity || 1;
+        const price = typeof item?.price === "number" ? item.price : 0;
+        const special = item?.specialInstructions || "";
+        return `
         <div class="item">
           <span>${quantity}x ${name}</span>
           <span>$${(quantity * price).toFixed(2)}</span>
         </div>
-        ${special ? `<div class="specialInstructions">special instructions: ${special}</div>` : ""}
+        ${
+          special
+            ? `<div class="specialInstructions">special instructions: ${special}</div>`
+            : ""
+        }
       `;
-    }).join("")}
+      })
+      .join("")}
 
     <div class="line"></div>
 
-    ${deliveryFee !== null ? `<div class="item"><span>Delivery Fee</span><span>$${deliveryFee.toFixed(2)}</span></div>` : ""}
-    ${serviceFee !== null ? `<div class="item"><span>Service Fee</span><span>$${serviceFee.toFixed(2)}</span></div>` : ""}
-    ${processingFee !== null ? `<div class="item"><span>Processing Fee</span><span>$${processingFee.toFixed(2)}</span></div>` : ""}
+    ${
+      deliveryFee !== null
+        ? `<div class="item"><span>Delivery Fee</span><span>$${deliveryFee.toFixed(
+            2
+          )}</span></div>`
+        : ""
+    }
+    ${
+      serviceFee !== null
+        ? `<div class="item"><span>Service Fee</span><span>$${serviceFee.toFixed(
+            2
+          )}</span></div>`
+        : ""
+    }
+    ${
+      processingFee !== null
+        ? `<div class="item"><span>Processing Fee</span><span>$${processingFee.toFixed(
+            2
+          )}</span></div>`
+        : ""
+    }
 
     <div class="line"></div>
-    <div class="item bold"><span>TOTAL</span><span>$${total.toFixed(2)}</span></div>
+    <div class="item bold"><span>TOTAL</span><span>$${total.toFixed(
+      2
+    )}</span></div>
 
-    ${deliveryInstructions ? `<div class="specialInstructions">special delivery instructions: ${deliveryInstructions}</div>` : ""}
+    ${
+      deliveryInstructions
+        ? `<div class="specialInstructions">special delivery instructions: ${deliveryInstructions}</div>`
+        : ""
+    }
 
     <div class="center">Thank you!</div>
   </body>
@@ -180,12 +218,18 @@ function getChromiumPath() {
 
 // Simple concurrency limiter (no deps)
 class Limit {
-  constructor(max = 2) { this.max = max; this.running = 0; this.queue = []; }
+  constructor(max = 2) {
+    this.max = max;
+    this.running = 0;
+    this.queue = [];
+  }
   async run(fn) {
-    if (this.running >= this.max) await new Promise(res => this.queue.push(res));
+    if (this.running >= this.max)
+      await new Promise((res) => this.queue.push(res));
     this.running++;
-    try { return await fn(); }
-    finally {
+    try {
+      return await fn();
+    } finally {
       this.running--;
       const next = this.queue.shift();
       if (next) next();
@@ -199,11 +243,17 @@ async function getBrowser() {
   if (!browserPromise) {
     browserPromise = puppeteer.launch({
       headless: true,
-      executablePath: getChromiumPath() || process.env.PUPPETEER_EXECUTABLE_PATH,
+      executablePath:
+        getChromiumPath() || process.env.PUPPETEER_EXECUTABLE_PATH,
       args: [
-        "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
-        "--disable-gpu", "--single-process", "--no-zygote",
-        "--mute-audio", "--font-render-hinting=none",
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--single-process",
+        "--no-zygote",
+        "--mute-audio",
+        "--font-render-hinting=none",
       ],
     });
   }
@@ -218,15 +268,18 @@ async function renderHtmlToPngFast(html) {
       // Important: Give Chrome stable layout width and disable scaling
       await page.setViewport({ width: 576, height: 800, deviceScaleFactor: 1 });
 
-      await page.goto("data:text/html;charset=utf-8," + encodeURIComponent(html), {
-        waitUntil: "domcontentloaded",
-        timeout: 15000,
-      });
+      await page.goto(
+        "data:text/html;charset=utf-8," + encodeURIComponent(html),
+        {
+          waitUntil: "domcontentloaded",
+          timeout: 15000,
+        }
+      );
 
       // ✅ Full-page screenshot (no clipping / no height measurement)
       const buf = await page.screenshot({
         type: "png",
-        fullPage: true,         // <---- key
+        fullPage: true, // <---- key
         captureBeyondViewport: true,
         optimizeForSpeed: true,
       });
@@ -245,12 +298,16 @@ function rasterForStar(rawBuffer) {
     palette: true,
     // 'colors' is the official key; 'colours' was accepted historically.
     colors: 2,
-    compressionLevel: 2,   // 0..9 (2 is fast)
-    effort: 1,             // 1..10 (1 is fastest); remove or bump if needed
+    compressionLevel: 2, // 0..9 (2 is fast)
+    effort: 1, // 1..10 (1 is fastest); remove or bump if needed
   };
 
   return sharp(rawBuffer, { failOn: "none" })
     .resize({ width: 565, kernel: "nearest" })
+    .extend({
+      bottom: 300,
+      background: { r: 255, g: 255, b: 255 }, // white background
+    })
     .grayscale()
     .threshold(160)
     .png(PNG_OPTS)
@@ -270,11 +327,22 @@ function appendFeedAndCut(buffer) {
 // Create jobs fast; render in background
 app.post("/api/print", async (req, res) => {
   const { restaurantId, order } = req.body || {};
-  if (!restaurantId) return res.status(400).json({ ok: false, error: "Missing restaurantId" });
+  if (!restaurantId)
+    return res.status(400).json({ ok: false, error: "Missing restaurantId" });
 
-  const restaurantIds = Array.isArray(restaurantId) ? restaurantId : [restaurantId];
-  const unknown = restaurantIds.filter(rid => !PRINTER_CONFIG.some(p => p.restaurantId === rid));
-  if (unknown.length) return res.status(404).json({ ok: false, error: `Unknown restaurantId(s): ${unknown.join(", ")}` });
+  const restaurantIds = Array.isArray(restaurantId)
+    ? restaurantId
+    : [restaurantId];
+  const unknown = restaurantIds.filter(
+    (rid) => !PRINTER_CONFIG.some((p) => p.restaurantId === rid)
+  );
+  if (unknown.length)
+    return res
+      .status(404)
+      .json({
+        ok: false,
+        error: `Unknown restaurantId(s): ${unknown.join(", ")}`,
+      });
 
   // Create queued jobs immediately (no content yet)
   const tokens = [];
@@ -299,7 +367,10 @@ app.post("/api/print", async (req, res) => {
 
       for (const t of tokens) {
         const ref = jobIndex.get(t);
-        if (ref?.job) { ref.job.content = finalBuffer; ref.job.status = "queued"; }
+        if (ref?.job) {
+          ref.job.content = finalBuffer;
+          ref.job.status = "queued";
+        }
       }
       console.log("print jobs ready:", tokens);
     } catch (e) {
@@ -334,13 +405,18 @@ app.post("/cloudprnt", (req, res) => {
 app.get("/cloudprnt", (req, res) => {
   const { token, type } = req.query;
   if (!token) return res.status(400).send("Missing token");
-  if (type !== "image/png") return res.status(415).send("Unsupported media type");
+  if (type !== "image/png")
+    return res.status(415).send("Unsupported media type");
 
   const ref = jobIndex.get(String(token));
   if (!ref) return res.sendStatus(404);
 
   if (!ref.job.content) {
-    console.log("Printer requested job", token, "but content not ready yet → jobReady:false");
+    console.log(
+      "Printer requested job",
+      token,
+      "but content not ready yet → jobReady:false"
+    );
     return res.json({ jobReady: false });
   }
 
@@ -372,12 +448,25 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, async () => {
   console.log(`CloudPRNT server running on :${PORT}`);
   // Warm browser for first render (optional, small spin-up)
-  try { await getBrowser(); console.log("Chromium warmed"); } catch (e) { console.warn("Chromium warm-up failed:", e?.message || e); }
+  try {
+    await getBrowser();
+    console.log("Chromium warmed");
+  } catch (e) {
+    console.warn("Chromium warm-up failed:", e?.message || e);
+  }
 });
 
 // Graceful shutdown closes browser
 async function closeBrowser() {
-  try { if (browserPromise) (await browserPromise).close(); } catch {}
+  try {
+    if (browserPromise) (await browserPromise).close();
+  } catch {}
 }
-process.on("SIGINT", async () => { await closeBrowser(); process.exit(0); });
-process.on("SIGTERM", async () => { await closeBrowser(); process.exit(0); });
+process.on("SIGINT", async () => {
+  await closeBrowser();
+  process.exit(0);
+});
+process.on("SIGTERM", async () => {
+  await closeBrowser();
+  process.exit(0);
+});
