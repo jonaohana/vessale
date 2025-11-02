@@ -280,8 +280,13 @@ app.get("/cloudprnt", (req, res) => {
   const ref = jobIndex.get(String(token));
   if (!ref) return res.sendStatus(404);
 
-  console.log('Serving job', token, 'for restaurant', ref.restaurantId);
+  // ✅ NEW: If the job exists but content isn't generated yet → tell printer to wait
+  if (!ref.job.content) {
+    console.log("Printer requested job", token, "but content not ready yet → jobReady:false");
+    return res.json({ jobReady: false });
+  }
 
+  console.log("Serving job", token, "for restaurant", ref.restaurantId);
   res.setHeader("Content-Type", "image/png");
   res.send(ref.job.content);
 });
