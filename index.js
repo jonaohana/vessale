@@ -216,40 +216,44 @@ function appendFeedAndCut(buffer) {
 /** --- API Routes --- */
 app.post("/api/print", async (req, res) => {
   const { restaurantId, order } = req.body || {};
-  if (!restaurantId)
-    return res.status(400).json({ ok: false, error: "Missing restaurantId" });
+  if (!restaurantId) return res.status(400).json({ ok: false, error: "Missing restaurantId" });
 
-  const restaurantIds = Array.isArray(restaurantId)
-    ? restaurantId
-    : [restaurantId];
+  const restaurantIds = Array.isArray(restaurantId) ? restaurantId : [restaurantId];
+  const unknown = restaurantIds.filter(rid => !PRINTER_CONFIG.some(p => p.restaurantId === rid));
+  if (unknown.length) return res.status(404).json({ ok: false, error: `Unknown restaurantId(s): ${unknown.join(", ")}` });
 
-  const html = generateReceiptHTML(order || {});
-  const optimizedBuffer = await htmlToOptimizedPng(html);
-  const finalBuffer = appendFeedAndCut(optimizedBuffer);
-
+  // Create queued jobs now
   const tokens = [];
-
   for (const rid of restaurantIds) {
-    const knownRestaurant = PRINTER_CONFIG.some((p) => p.restaurantId === rid);
-    if (!knownRestaurant) {
-      return res
-        .status(404)
-        .json({ ok: false, error: `Unknown restaurantId: ${rid}` });
-    }
-
     const id = makeId();
-    const job = {
-      id,
-      content: finalBuffer,
-      status: "queued",
-      restaurantId: rid,
-    };
+    const job = { id, content: null, status: "queued", restaurantId: rid };
     queueFor(rid).push(job);
     jobIndex.set(id, { restaurantId: rid, job });
     tokens.push(id);
   }
 
-  res.json({ ok: true, tokens });
+  // Respond immediately so Lambda can continue and print logs
+  res.status(202).json({ ok: true, tokens });
+
+  // Background render
+  (async () => {
+    try {
+      const html = generateReceiptHTML(order || {});
+      const buf = await htmlToOptimizedPng(html);
+      const finalBuffer = appendFeedAndCut(buf);
+      for (const t of tokens) {
+        const ref = jobIndex.get(t);
+        if (ref?.job) { ref.job.content = finalBuffer; ref.job.status = "queued"; }
+      }
+      console.log("print jobs ready:", tokens);
+    } catch (e) {
+      console.error("background print render failed", e);
+      for (const t of tokens) {
+        const ref = jobIndex.get(t);
+        if (ref?.job) ref.job.status = "failed";
+      }
+    }
+  })();
 });
 
 /** PRINTER POLL */
