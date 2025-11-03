@@ -232,24 +232,64 @@ async function getBrowser() {
 async function renderHtmlToPngFast(html) {
   const browser = await getBrowser();
   return renderLimit.run(async () => {
+    const t0 = Date.now();
     const page = await browser.newPage();
     try {
+      // Static HTML: JS off = faster layout/paint
+      await page.setJavaScriptEnabled(false);
+
+      // Stable layout width, no scaling
       await page.setViewport({ width: 576, height: 800, deviceScaleFactor: 1 });
-      await page.setCacheEnabled(false);
-      await page.goto("data:text/html;charset=utf-8," + encodeURIComponent(html), {
-        waitUntil: "domcontentloaded",
-        timeout: 15000,
+
+      // Block all external resources; allow only data: URLs
+      await page.setRequestInterception(true);
+      page.on('request', req => {
+        const url = req.url();
+        // Allow data: (logo), everything else abort (no network)
+        if (url.startsWith('data:')) return req.continue();
+        // Block heavy types outright
+        const type = req.resourceType();
+        if (type === 'image' || type === 'font' || type === 'media' || type === 'stylesheet' || type === 'xhr' || type === 'fetch') {
+          return req.abort();
+        }
+        // In practice nothing else should fire for setContent, but be safe:
+        return req.abort();
       });
+
+      const tSetContent0 = Date.now();
+      await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      const tSetContent1 = Date.now();
+
+      // Compute exact content height (no cap) and take a single clipped shot
+      const height = await page.evaluate(() => {
+        const h = Math.max(
+          document.body.scrollHeight,
+          document.documentElement.scrollHeight
+        );
+        return Math.min(h, 30_000); // guardrail to prevent absurd heights
+      });
+
+      const tShot0 = Date.now();
       const buf = await page.screenshot({
-        type: "png",
-        fullPage: true,
-        captureBeyondViewport: true,
+        type: 'png',
+        clip: { x: 0, y: 0, width: 576, height },
+        captureBeyondViewport: false,
         optimizeForSpeed: true,
       });
+      const tShot1 = Date.now();
+
+      console.log(
+        `[render] newPage=${tSetContent0 - t0}ms setContent=${tSetContent1 - tSetContent0}ms ` +
+        `measure=${tShot0 - tSetContent1}ms screenshot=${tShot1 - tShot0}ms total=${Date.now() - t0}ms`
+      );
+
       return buf;
-    } finally { await page.close().catch(() => {}); }
+    } finally {
+      await page.close().catch(() => {});
+    }
   });
 }
+
 
 // Raster -> Star
 function rasterForStar(raw) {
