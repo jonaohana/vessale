@@ -293,21 +293,24 @@ async function renderHtmlToPngFast(html) {
   return renderLimit.run(async () => {
     const page = await browser.newPage();
     try {
-      // Important: Give Chrome stable layout width and disable scaling
+      // Stable layout width
       await page.setViewport({ width: 576, height: 800, deviceScaleFactor: 1 });
+
+      // ✅ Disable web resource cache (NOT raster cache)
+      await page.setCacheEnabled(false);
 
       await page.goto(
         "data:text/html;charset=utf-8," + encodeURIComponent(html),
         {
-          waitUntil: "domcontentloaded",
+          waitUntil: "domcontentloaded", // faster than networkidle
           timeout: 15000,
         }
       );
 
-      // ✅ Full-page screenshot (no clipping / no height measurement)
+      // ✅ Full-page screenshot (no height measurement)
       const buf = await page.screenshot({
         type: "png",
-        fullPage: true, // <---- key
+        fullPage: true,
         captureBeyondViewport: true,
         optimizeForSpeed: true,
       });
