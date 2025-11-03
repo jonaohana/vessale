@@ -227,7 +227,6 @@ async function getBrowser() {
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
-        "--single-process",
         "--no-zygote",
         "--mute-audio",
         "--font-render-hinting=none",
