@@ -4,16 +4,6 @@ import puppeteer from "puppeteer";
 import fs from "fs";
 import sharp from "sharp";
 
-// --- utils: watchdog timeout for any promise
-function withTimeout(promise, ms, label = "op") {
-  return Promise.race([
-    promise,
-    new Promise((_, rej) =>
-      setTimeout(() => rej(new Error(`Timeout: ${label} after ${ms}ms`)), ms)
-    ),
-  ]);
-}
-
 // --------------------------
 // Config & App
 // --------------------------
@@ -45,9 +35,7 @@ const serialToRestaurant = new Map(
 // In-memory Job Store
 // --------------------------
 function makeId() {
-  return `${Date.now().toString(36)}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 const jobsByRestaurant = new Map(); // restaurantId -> Job[]
 const jobIndex = new Map(); // token -> { restaurantId, job }
@@ -84,7 +72,7 @@ function requeueJob(token) {
 const base64 = fs.readFileSync("./logo-backup.png", "base64");
 
 // --------------------------
-// HTML Template (pickup-aware)
+// HTML Template
 // --------------------------
 function generateReceiptHTML(order = {}) {
   const restaurantName = order.restaurantName || "";
@@ -92,7 +80,7 @@ function generateReceiptHTML(order = {}) {
   const driverPhone = order.driverPhone || "";
   const providerName = order.providerName || "";
   const estimatePickupTime = order.estimatePickupTime || "";
-  const isPickup = !!order.pickup;
+  const isPickup = !!order.pickup; // <— key
 
   const customerName = order.customerDetails?.name || "";
   const customerAddress = order.customerDetails?.address || "";
@@ -197,7 +185,7 @@ function generateReceiptHTML(order = {}) {
 }
 
 // --------------------------
-// Puppeteer (stable, no emulation)
+// Puppeteer Fast Path
 // --------------------------
 function getChromiumPath() {
   const candidates = ["/usr/bin/chromium", "/usr/bin/chromium-browser"];
@@ -207,7 +195,7 @@ function getChromiumPath() {
 
 // Simple concurrency limiter (no deps)
 class Limit {
-  constructor(max = 1) { // serialize for stability; you can bump later
+  constructor(max = 2) {
     this.max = max;
     this.running = 0;
     this.queue = [];
@@ -225,113 +213,71 @@ class Limit {
     }
   }
 }
-const renderLimit = new Limit(1);
+const renderLimit = new Limit(2); // tune for your box
 
 let browserPromise = null;
 async function getBrowser() {
   if (!browserPromise) {
     browserPromise = puppeteer.launch({
       headless: true,
-      executablePath: getChromiumPath() || process.env.PUPPETEER_EXECUTABLE_PATH,
-      defaultViewport: null, // no viewport emulation
+      executablePath:
+        getChromiumPath() || process.env.PUPPETEER_EXECUTABLE_PATH,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
+        "--single-process",
         "--no-zygote",
         "--mute-audio",
         "--font-render-hinting=none",
-        "--disable-backgrounding-occluded-windows",
-        "--disable-background-timer-throttling",
-        "--disable-features=PaintHolding,CalculateNativeWinOcclusion",
       ],
     });
   }
   return browserPromise;
 }
 
-// Reuse a single persistent page; recreate if it dies
-let pagePromise = null;
-async function getRenderPage() {
-  const browser = await getBrowser();
-
-  async function create() {
-    const p = await browser.newPage();
-    p.on("close", () => { pagePromise = null; });
-    p.on("error", () => { pagePromise = null; });
-    return p;
-  }
-
-  if (!pagePromise) pagePromise = create();
-  try {
-    const page = await pagePromise;
-    try { await page.title().catch(() => { throw new Error("dead"); }); }
-    catch { pagePromise = create(); }
-  } catch {
-    pagePromise = create();
-  }
-  return pagePromise;
-}
-
-// Hardened renderer with retries + per-step watchdogs
 async function renderHtmlToPngFast(html) {
-  const MAX_RETRIES = 3;
-  const RETRYABLE = [
-    "Session closed",
-    "Target closed",
-    "Protocol error",
-    "Execution context was destroyed",
-    "Navigating frame was detached",
-    "LifecycleWatcher disposed",
-    "Timeout",
-  ];
-
-  const CONTENT_TIMEOUT_MS = 15_000;
-  const SHOT_TIMEOUT_MS    = 15_000;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    const page = await getRenderPage();
+  const browser = await getBrowser();
+  return renderLimit.run(async () => {
+    const page = await browser.newPage();
     try {
-      return await renderLimit.run(async () => {
-        await withTimeout(
-          page.setContent(html, { waitUntil: "domcontentloaded", timeout: CONTENT_TIMEOUT_MS }),
-          CONTENT_TIMEOUT_MS + 500,
-          "setContent(domcontentloaded)"
-        );
+      // Important: Give Chrome stable layout width and disable scaling
+      await page.setViewport({ width: 576, height: 800, deviceScaleFactor: 1 });
 
-        await page.waitForTimeout(50); // tiny settle
+      await page.goto(
+        "data:text/html;charset=utf-8," + encodeURIComponent(html),
+        {
+          waitUntil: "domcontentloaded",
+          timeout: 15000,
+        }
+      );
 
-        const buf = await withTimeout(
-          page.screenshot({ type: "png", fullPage: true }),
-          SHOT_TIMEOUT_MS,
-          "screenshot(fullPage)"
-        );
-
-        return buf;
+      // ✅ Full-page screenshot (no clipping / no height measurement)
+      const buf = await page.screenshot({
+        type: "png",
+        fullPage: true, // <---- key
+        captureBeyondViewport: true,
+        optimizeForSpeed: true,
       });
-    } catch (err) {
-      const msg = String(err?.message || err);
-      const retry = RETRYABLE.some(t => msg.includes(t));
-      const last = attempt === MAX_RETRIES;
 
-      console.warn(`[renderHtmlToPngFast] attempt ${attempt} failed: ${msg}`);
-
-      // Force a fresh page next loop
-      try { await page.close().catch(() => {}); } catch {}
-      pagePromise = null;
-
-      if (!retry || last) throw err;
-      await new Promise(r => setTimeout(r, 250 * attempt));
+      return buf;
+    } finally {
+      await page.close().catch(() => {});
     }
-  }
+  });
 }
 
-// --------------------------
-// Sharp pipeline (fast, mono)
-// --------------------------
+// Fast Sharp pipeline (monochrome receipt) — version-safe
 function rasterForStar(rawBuffer) {
-  const PNG_OPTS = { palette: true, colors: 2, compressionLevel: 2, effort: 1 };
+  // effort must be 1..10 on many sharp versions
+  const PNG_OPTS = {
+    palette: true,
+    // 'colors' is the official key; 'colours' was accepted historically.
+    colors: 2,
+    compressionLevel: 2, // 0..9 (2 is fast)
+    effort: 1, // 1..10 (1 is fastest); remove or bump if needed
+  };
 
   return sharp(rawBuffer, { failOn: "none" })
     .resize({ width: 565, kernel: "nearest" })
@@ -481,7 +427,6 @@ app.listen(PORT, async () => {
   // Warm browser for first render (optional, small spin-up)
   try {
     await getBrowser();
-    await getRenderPage(); // pre-create page
     console.log("Chromium warmed");
   } catch (e) {
     console.warn("Chromium warm-up failed:", e?.message || e);
