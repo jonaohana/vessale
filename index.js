@@ -80,7 +80,7 @@ function generateReceiptHTML(order = {}) {
   const driverPhone = order.driverPhone || "";
   const providerName = order.providerName || "";
   const estimatePickupTime = order.estimatePickupTime || "";
-  const isPickup = !!order.pickup; // <— key
+  const isPickup = !!order.pickup;
 
   const customerName = order.customerDetails?.name || "";
   const customerAddress = order.customerDetails?.address || "";
@@ -129,101 +129,51 @@ function generateReceiptHTML(order = {}) {
 
     <div class="center bold">${restaurantName}</div>
 
-    <!-- Top info: show Provider always; hide Driver + Pickup Time when pickup -->
+    <!-- Top info -->
     <div class="center subinfo">
-      ${
-        !isPickup
-          ? `<span>Pickup Driver: <span style="font-weight:bold;">${driverName} - ${driverPhone}</span></span><br/>`
-          : ``
-      }
-      ${
-        isPickup
-          ? `<span>Pickup <span style="font-weight:bold;">${customerName}</span></span><br/>`
-          : ``
-      }
-      ${
-        providerName
-          ? `Provider: <span style="font-weight:bold;">${providerName}</span><br/>`
-          : ``
-      }
+      ${!isPickup ? `<span>Pickup Driver: <span style="font-weight:bold;">${driverName} - ${driverPhone}</span></span><br/>` : ``}
+      ${isPickup ? `<span>Pickup <span style="font-weight:bold;">${customerName}</span></span><br/>` : ``}
+      ${providerName ? `Provider: <span style="font-weight:bold;">${providerName}</span><br/>` : ``}
       ${!isPickup ? `Pickup Time: ${estimatePickupTime}` : ``}
     </div>
 
     <div class="line"></div>
 
-    <!-- Delivery address: hide entirely on pickup -->
-    ${
-      !isPickup
-        ? `
+    <!-- Delivery address: hidden for pickup -->
+    ${!isPickup ? `
       <div class="center subinfo">
         Delivery Address:
         <span style="font-weight:bold;">
-          ${customerName} — ${customerAddress}${
-            customerCity ? ", " + customerCity : ""
-          }, ${customerState}, ${customerZip}
+          ${customerName} — ${customerAddress}${customerCity ? ", " + customerCity : ""}, ${customerState}, ${customerZip}
         </span>
       </div>
       <div class="line"></div>
-    `
-        : ``
-    }
+    ` : ``}
 
-    ${items
-      .map((item) => {
-        const name = item?.name || "Item";
-        const quantity = item?.quantity || 1;
-        const price = typeof item?.price === "number" ? item.price : 0;
-        const special = item?.specialInstructions || "";
-        return `
+    ${items.map(item => {
+      const name = item?.name || "Item";
+      const quantity = item?.quantity || 1;
+      const price = typeof item?.price === "number" ? item.price : 0;
+      const special = item?.specialInstructions || "";
+      return `
         <div class="item">
           <span>${quantity}x ${name}</span>
           <span>$${(quantity * price).toFixed(2)}</span>
         </div>
-        ${
-          special
-            ? `<div class="specialInstructions">special instructions: ${special}</div>`
-            : ""
-        }
+        ${special ? `<div class="specialInstructions">special instructions: ${special}</div>` : ""}
       `;
-      })
-      .join("")}
+    }).join("")}
 
     <div class="line"></div>
 
-    <!-- Fees: hide delivery fee on pickup -->
-    ${
-      !isPickup && deliveryFee !== null
-        ? `<div class="item"><span>Delivery Fee</span><span>$${deliveryFee.toFixed(
-            2
-          )}</span></div>`
-        : ""
-    }
-    ${
-      serviceFee !== null
-        ? `<div class="item"><span>Service Fee</span><span>$${serviceFee.toFixed(
-            2
-          )}</span></div>`
-        : ""
-    }
-    ${
-      processingFee !== null
-        ? `<div class="item"><span>Processing Fee</span><span>$${processingFee.toFixed(
-            2
-          )}</span></div>`
-        : ""
-    }
+    ${(!isPickup && deliveryFee !== null) ? `<div class="item"><span>Delivery Fee</span><span>$${deliveryFee.toFixed(2)}</span></div>` : ""}
+    ${serviceFee !== null ? `<div class="item"><span>Service Fee</span><span>$${serviceFee.toFixed(2)}</span></div>` : ""}
+    ${processingFee !== null ? `<div class="item"><span>Processing Fee</span><span>$${processingFee.toFixed(2)}</span></div>` : ""}
 
     <div class="line"></div>
-    <div class="item bold"><span>TOTAL</span><span>$${total.toFixed(
-      2
-    )}</span></div>
+    <div class="item bold"><span>TOTAL</span><span>$${total.toFixed(2)}</span></div>
 
-    <!-- Special delivery instructions: hide on pickup -->
-    ${
-      !isPickup && deliveryInstructions
-        ? `<div class="specialInstructions">special delivery instructions: ${deliveryInstructions}</div>`
-        : ""
-    }
+    ${(!isPickup && deliveryInstructions) ? `<div class="specialInstructions">special delivery instructions: ${deliveryInstructions}</div>` : ""}
 
     <div class="center">Thank you!</div>
   </body>
@@ -241,7 +191,7 @@ function getChromiumPath() {
 
 // Simple concurrency limiter (no deps)
 class Limit {
-  constructor(max = 2) {
+  constructor(max = 1) { // serialize renders inside worker
     this.max = max;
     this.running = 0;
     this.queue = [];
@@ -259,27 +209,25 @@ class Limit {
     }
   }
 }
-const renderLimit = new Limit(2); // tune for your box
+const renderLimit = new Limit(1);
 
 let browserPromise = null;
 async function getBrowser() {
   if (!browserPromise) {
     browserPromise = puppeteer.launch({
       headless: true,
-      executablePath:
-        getChromiumPath() || process.env.PUPPETEER_EXECUTABLE_PATH,
+      executablePath: getChromiumPath() || process.env.PUPPETEER_EXECUTABLE_PATH,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
-        "--disk-cache-size=52428800", // 50 MB
+        "--disk-cache-size=52428800",
         "--media-cache-size=52428800",
         "--single-process",
         "--no-zygote",
         "--mute-audio",
         "--font-render-hinting=none",
-        // Optional: prevents background throttling
         "--disable-background-timer-throttling",
         "--disable-backgrounding-occluded-windows",
       ],
@@ -293,21 +241,13 @@ async function renderHtmlToPngFast(html) {
   return renderLimit.run(async () => {
     const page = await browser.newPage();
     try {
-      // Stable layout width
       await page.setViewport({ width: 576, height: 800, deviceScaleFactor: 1 });
-
-      // ✅ Disable web resource cache (NOT raster cache)
       await page.setCacheEnabled(false);
 
-      await page.goto(
-        "data:text/html;charset=utf-8," + encodeURIComponent(html),
-        {
-          waitUntil: "domcontentloaded", // faster than networkidle
-          timeout: 15000,
-        }
-      );
+      // Use setContent to avoid navigation/lifecycle races
+      await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 15000 });
 
-      // ✅ Full-page screenshot (no height measurement)
+      // Full-page screenshot
       const buf = await page.screenshot({
         type: "png",
         fullPage: true,
@@ -322,22 +262,20 @@ async function renderHtmlToPngFast(html) {
   });
 }
 
-// Fast Sharp pipeline (monochrome receipt) — version-safe
+// Fast Sharp pipeline (monochrome receipt)
 function rasterForStar(rawBuffer) {
-  // effort must be 1..10 on many sharp versions
   const PNG_OPTS = {
     palette: true,
-    // 'colors' is the official key; 'colours' was accepted historically.
     colors: 2,
-    compressionLevel: 2, // 0..9 (2 is fast)
-    effort: 1, // 1..10 (1 is fastest); remove or bump if needed
+    compressionLevel: 2,
+    effort: 1, // keep low (fast)
   };
 
   return sharp(rawBuffer, { failOn: "none" })
     .resize({ width: 565, kernel: "nearest" })
     .extend({
-      bottom: 300,
-      background: { r: 255, g: 255, b: 255 }, // white background
+      bottom: 300, // extra paper buffer
+      background: { r: 255, g: 255, b: 255 },
     })
     .grayscale()
     .threshold(160)
@@ -352,26 +290,65 @@ function appendFeedAndCut(buffer) {
 }
 
 // --------------------------
+// Render queue & worker
+// --------------------------
+const renderQueue = []; // items: { token, html }
+let renderWorkerStarted = false;
+const MAX_QUEUE = 500;  // back-pressure guard
+
+function enqueueRender(token, html) {
+  if (renderQueue.length > MAX_QUEUE) {
+    console.warn("Render queue overloaded:", renderQueue.length);
+    return; // jobs will exist but never get content; printer will keep polling jobReady:false
+  }
+  renderQueue.push({ token, html });
+  if (!renderWorkerStarted) startRenderWorker();
+}
+
+async function startRenderWorker() {
+  renderWorkerStarted = true;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const job = renderQueue.shift();
+    if (!job) {
+      await new Promise((r) => setTimeout(r, 50));
+      continue;
+    }
+    const { token, html } = job;
+    try {
+      const raw = await renderHtmlToPngFast(html);
+      const optimized = await rasterForStar(raw);
+      const finalBuffer = appendFeedAndCut(optimized);
+
+      const ref = jobIndex.get(token);
+      if (ref?.job) {
+        ref.job.content = finalBuffer;
+        ref.job.status = "queued";
+      }
+      console.log("[render] job ready:", token);
+    } catch (e) {
+      console.error("[render] failed for token", token, e);
+      const ref = jobIndex.get(token);
+      if (ref?.job) ref.job.status = "failed";
+      // continue loop
+    }
+  }
+}
+
+// --------------------------
 // Routes
 // --------------------------
 
-// Create jobs fast; render in background
+// Create jobs fast; enqueue for single worker to render
 app.post("/api/print", async (req, res) => {
   const { restaurantId, order } = req.body || {};
   if (!restaurantId)
     return res.status(400).json({ ok: false, error: "Missing restaurantId" });
 
-  const restaurantIds = Array.isArray(restaurantId)
-    ? restaurantId
-    : [restaurantId];
-  const unknown = restaurantIds.filter(
-    (rid) => !PRINTER_CONFIG.some((p) => p.restaurantId === rid)
-  );
+  const restaurantIds = Array.isArray(restaurantId) ? restaurantId : [restaurantId];
+  const unknown = restaurantIds.filter((rid) => !PRINTER_CONFIG.some((p) => p.restaurantId === rid));
   if (unknown.length)
-    return res.status(404).json({
-      ok: false,
-      error: `Unknown restaurantId(s): ${unknown.join(", ")}`,
-    });
+    return res.status(404).json({ ok: false, error: `Unknown restaurantId(s): ${unknown.join(", ")}` });
 
   // Create queued jobs immediately (no content yet)
   const tokens = [];
@@ -386,30 +363,17 @@ app.post("/api/print", async (req, res) => {
   // Respond ASAP so callers (Lambda) don't block
   res.status(202).json({ ok: true, tokens });
 
-  // Background render
-  (async () => {
-    try {
-      const html = generateReceiptHTML(order || {});
-      const raw = await renderHtmlToPngFast(html);
-      const optimized = await rasterForStar(raw);
-      const finalBuffer = appendFeedAndCut(optimized);
-
-      for (const t of tokens) {
-        const ref = jobIndex.get(t);
-        if (ref?.job) {
-          ref.job.content = finalBuffer;
-          ref.job.status = "queued";
-        }
-      }
-      console.log("print jobs ready:", tokens);
-    } catch (e) {
-      console.error("background print render failed", e);
-      for (const t of tokens) {
-        const ref = jobIndex.get(t);
-        if (ref?.job) ref.job.status = "failed";
-      }
+  // Enqueue one render per token (single worker will serialize)
+  try {
+    const html = generateReceiptHTML(order || {});
+    for (const t of tokens) enqueueRender(t, html);
+  } catch (e) {
+    console.error("enqueue html failed", e);
+    for (const t of tokens) {
+      const ref = jobIndex.get(t);
+      if (ref?.job) ref.job.status = "failed";
     }
-  })();
+  }
 });
 
 // CloudPRNT poll — only offer when content is ready
@@ -434,23 +398,17 @@ app.post("/cloudprnt", (req, res) => {
 app.get("/cloudprnt", (req, res) => {
   const { token, type } = req.query;
   if (!token) return res.status(400).send("Missing token");
-  if (type !== "image/png")
-    return res.status(415).send("Unsupported media type");
+  if (type !== "image/png") return res.status(415).send("Unsupported media type");
 
   const ref = jobIndex.get(String(token));
   if (!ref) return res.sendStatus(404);
 
   if (!ref.job.content) {
-    console.log(
-      "Printer requested job",
-      token,
-      "but content not ready yet → jobReady:false"
-    );
+    console.log("Printer requested job", token, "but content not ready yet → jobReady:false");
     return res.json({ jobReady: false });
   }
 
   console.log("Serving job", token, "for restaurant", ref.restaurantId);
-
   res.setHeader("Content-Type", "image/png");
   res.send(ref.job.content);
 });
@@ -477,7 +435,7 @@ app.delete("/cloudprnt", (req, res) => {
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, async () => {
   console.log(`CloudPRNT server running on :${PORT}`);
-  // Warm browser for first render (optional, small spin-up)
+  // Warm browser for first render (optional)
   try {
     await getBrowser();
     console.log("Chromium warmed");
@@ -490,10 +448,6 @@ app.listen(PORT, async () => {
 async function closeBrowser() {
   try {
     if (browserPromise) (await browserPromise).close();
-  } catch {}
-  try {
-    if (USER_DATA_DIR)
-      fs.rmSync(USER_DATA_DIR, { recursive: true, force: true });
   } catch {}
 }
 process.on("SIGINT", async () => {
