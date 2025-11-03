@@ -15,7 +15,7 @@ const PRINTER_CONFIG = [
   { restaurantId: "local", serial: "2581021060600835" },
   { restaurantId: "worldfamous-skyler1", serial: "2581018070600248" },
   { restaurantId: "worldfamous-skyler2", serial: "2581019070600037" },
-  { restaurantId: "worldfamous-printer1", serial: "2581018070600248" },
+  // { restaurantId: "worldfamous-printer1", serial: "2581018070600248" },
   { restaurantId: "worldfamous-printer2", serial: "2581019070600037" },
   { restaurantId: "worldfamous-downey-printer1", serial: "2581018080600059" },
   { restaurantId: "worldfamous-downey-printer2", serial: "2581018070600306" },
