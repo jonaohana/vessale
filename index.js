@@ -131,53 +131,99 @@ function generateReceiptHTML(order = {}) {
 
     <!-- Top info: show Provider always; hide Driver + Pickup Time when pickup -->
     <div class="center subinfo">
-      ${!isPickup ? `<span>Pickup Driver: <span style="font-weight:bold;">${driverName} - ${driverPhone}</span></span><br/>` : ``}
-      ${isPickup ? `<span>Pickup <span style="font-weight:bold;">${customerName}</span></span><br/>` : ``}
-      ${providerName ? `Provider: <span style="font-weight:bold;">${providerName}</span><br/>` : ``}
+      ${
+        !isPickup
+          ? `<span>Pickup Driver: <span style="font-weight:bold;">${driverName} - ${driverPhone}</span></span><br/>`
+          : ``
+      }
+      ${
+        isPickup
+          ? `<span>Pickup <span style="font-weight:bold;">${customerName}</span></span><br/>`
+          : ``
+      }
+      ${
+        providerName
+          ? `Provider: <span style="font-weight:bold;">${providerName}</span><br/>`
+          : ``
+      }
       ${!isPickup ? `Pickup Time: ${estimatePickupTime}` : ``}
     </div>
 
     <div class="line"></div>
 
     <!-- Delivery address: hide entirely on pickup -->
-    ${!isPickup ? `
+    ${
+      !isPickup
+        ? `
       <div class="center subinfo">
         Delivery Address:
         <span style="font-weight:bold;">
-          ${customerName} — ${customerAddress}${customerCity ? ", " + customerCity : ""}, ${customerState}, ${customerZip}
+          ${customerName} — ${customerAddress}${
+            customerCity ? ", " + customerCity : ""
+          }, ${customerState}, ${customerZip}
         </span>
       </div>
       <div class="line"></div>
-    ` : ``}
+    `
+        : ``
+    }
 
-    ${items.map(item => {
-      const name = item?.name || "Item";
-      const quantity = item?.quantity || 1;
-      const price = typeof item?.price === "number" ? item.price : 0;
-      const special = item?.specialInstructions || "";
-      return `
+    ${items
+      .map((item) => {
+        const name = item?.name || "Item";
+        const quantity = item?.quantity || 1;
+        const price = typeof item?.price === "number" ? item.price : 0;
+        const special = item?.specialInstructions || "";
+        return `
         <div class="item">
           <span>${quantity}x ${name}</span>
           <span>$${(quantity * price).toFixed(2)}</span>
         </div>
-        ${special ? `<div class="specialInstructions">special instructions: ${special}</div>` : ""}
+        ${
+          special
+            ? `<div class="specialInstructions">special instructions: ${special}</div>`
+            : ""
+        }
       `;
-    }).join("")}
+      })
+      .join("")}
 
     <div class="line"></div>
 
     <!-- Fees: hide delivery fee on pickup -->
-    ${(!isPickup && deliveryFee !== null) ? `<div class="item"><span>Delivery Fee</span><span>$${deliveryFee.toFixed(2)}</span></div>` : ""}
-    ${serviceFee !== null ? `<div class="item"><span>Service Fee</span><span>$${serviceFee.toFixed(2)}</span></div>` : ""}
-    ${processingFee !== null ? `<div class="item"><span>Processing Fee</span><span>$${processingFee.toFixed(2)}</span></div>` : ""}
+    ${
+      !isPickup && deliveryFee !== null
+        ? `<div class="item"><span>Delivery Fee</span><span>$${deliveryFee.toFixed(
+            2
+          )}</span></div>`
+        : ""
+    }
+    ${
+      serviceFee !== null
+        ? `<div class="item"><span>Service Fee</span><span>$${serviceFee.toFixed(
+            2
+          )}</span></div>`
+        : ""
+    }
+    ${
+      processingFee !== null
+        ? `<div class="item"><span>Processing Fee</span><span>$${processingFee.toFixed(
+            2
+          )}</span></div>`
+        : ""
+    }
 
     <div class="line"></div>
-    <div class="item bold"><span>TOTAL</span><span>$${total.toFixed(2)}</span></div>
+    <div class="item bold"><span>TOTAL</span><span>$${total.toFixed(
+      2
+    )}</span></div>
 
     <!-- Special delivery instructions: hide on pickup -->
-    ${(!isPickup && deliveryInstructions)
-      ? `<div class="specialInstructions">special delivery instructions: ${deliveryInstructions}</div>`
-      : ""}
+    ${
+      !isPickup && deliveryInstructions
+        ? `<div class="specialInstructions">special delivery instructions: ${deliveryInstructions}</div>`
+        : ""
+    }
 
     <div class="center">Thank you!</div>
   </body>
@@ -227,12 +273,15 @@ async function getBrowser() {
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
-        "--disk-cache-size=1",            // keep disk cache tiny
-        "--media-cache-size=1",
+        "--disk-cache-size=52428800", // 50 MB
+        "--media-cache-size=52428800",
         "--single-process",
         "--no-zygote",
         "--mute-audio",
         "--font-render-hinting=none",
+        // Optional: prevents background throttling
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
       ],
     });
   }
@@ -316,12 +365,10 @@ app.post("/api/print", async (req, res) => {
     (rid) => !PRINTER_CONFIG.some((p) => p.restaurantId === rid)
   );
   if (unknown.length)
-    return res
-      .status(404)
-      .json({
-        ok: false,
-        error: `Unknown restaurantId(s): ${unknown.join(", ")}`,
-      });
+    return res.status(404).json({
+      ok: false,
+      error: `Unknown restaurantId(s): ${unknown.join(", ")}`,
+    });
 
   // Create queued jobs immediately (no content yet)
   const tokens = [];
@@ -438,8 +485,13 @@ app.listen(PORT, async () => {
 
 // Graceful shutdown closes browser
 async function closeBrowser() {
-  try { if (browserPromise) (await browserPromise).close(); } catch {}
-  try { if (USER_DATA_DIR) fs.rmSync(USER_DATA_DIR, { recursive: true, force: true }); } catch {}
+  try {
+    if (browserPromise) (await browserPromise).close();
+  } catch {}
+  try {
+    if (USER_DATA_DIR)
+      fs.rmSync(USER_DATA_DIR, { recursive: true, force: true });
+  } catch {}
 }
 process.on("SIGINT", async () => {
   await closeBrowser();
