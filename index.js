@@ -237,35 +237,60 @@ async function getBrowser() {
 }
 
 async function renderHtmlToPngFast(html) {
-  const browser = await getBrowser();
-  return renderLimit.run(async () => {
-    const page = await browser.newPage();
+  const MAX_RETRIES = 3;
+  const RETRYABLE = [
+    "Session closed",
+    "Target closed",
+    "Protocol error",
+    "Execution context was destroyed",
+    "Navigating frame was detached",
+    "LifecycleWatcher disposed",
+  ];
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const browser = await getBrowser();
     try {
-      // Important: Give Chrome stable layout width and disable scaling
-      await page.setViewport({ width: 576, height: 800, deviceScaleFactor: 1 });
+      return await renderLimit.run(async () => {
+        const page = await browser.newPage();
+        try {
+          // no page.setViewport here – viewport is set at launch
 
-      await page.goto(
-        "data:text/html;charset=utf-8," + encodeURIComponent(html),
-        {
-          waitUntil: "domcontentloaded",
-          timeout: 15000,
+          // Avoid a navigation (less chance of lifecycle races)
+          await page.setContent(html, {
+            waitUntil: "domcontentloaded",
+            timeout: 15000,
+          });
+
+          // Full page screenshot, no height math
+          const buf = await page.screenshot({
+            type: "png",
+            fullPage: true,
+            // captureBeyondViewport intentionally omitted (not needed for fullPage)
+            optimizeForSpeed: true,
+          });
+          return buf;
+        } finally {
+          try { await page.close(); } catch {}
         }
-      );
-
-      // ✅ Full-page screenshot (no clipping / no height measurement)
-      const buf = await page.screenshot({
-        type: "png",
-        fullPage: true, // <---- key
-        captureBeyondViewport: true,
-        optimizeForSpeed: true,
       });
+    } catch (err) {
+      const msg = (err && (err.message || String(err))) || "";
+      const retry = RETRYABLE.some(s => msg.includes(s));
+      const last = attempt === MAX_RETRIES;
 
-      return buf;
-    } finally {
-      await page.close().catch(() => {});
+      // If the target/browser died, force relaunch next loop
+      if (msg.includes("Target closed") || msg.includes("Session closed")) {
+        try { const b = await browserPromise; await b.close().catch(() => {}); } catch {}
+        browserPromise = null;
+      }
+      if (!retry || last) throw err;
+
+      // small backoff
+      await new Promise(r => setTimeout(r, 200 * attempt));
     }
-  });
+  }
 }
+
 
 // Fast Sharp pipeline (monochrome receipt) — version-safe
 function rasterForStar(rawBuffer) {
