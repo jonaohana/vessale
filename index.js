@@ -398,6 +398,7 @@ app.get("/cloudprnt", (req, res) => {
   }
 
   console.log("Serving job", token, "for restaurant", ref.restaurantId);
+  
   res.setHeader("Content-Type", "image/png");
   res.send(ref.job.content);
 });
