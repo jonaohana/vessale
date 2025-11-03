@@ -438,9 +438,8 @@ app.listen(PORT, async () => {
 
 // Graceful shutdown closes browser
 async function closeBrowser() {
-  try {
-    if (browserPromise) (await browserPromise).close();
-  } catch {}
+  try { if (browserPromise) (await browserPromise).close(); } catch {}
+  try { if (USER_DATA_DIR) fs.rmSync(USER_DATA_DIR, { recursive: true, force: true }); } catch {}
 }
 process.on("SIGINT", async () => {
   await closeBrowser();
