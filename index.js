@@ -3,6 +3,7 @@ import express from "express";
 import puppeteer from "puppeteer";
 import fs from "fs";
 import sharp from "sharp";
+import { performance } from "perf_hooks"; // ← timing
 
 // --------------------------
 // Config & App
@@ -268,6 +269,32 @@ function appendFeedAndCut(buffer) {
 }
 
 // --------------------------
+// Render pipeline with timing
+// --------------------------
+async function renderPipelineWithTiming(html, meta = {}) {
+  const t0 = performance.now();
+  const raw = await renderHtmlToPngFast(html);
+  const t1 = performance.now();
+  const optimized = await rasterForStar(raw);
+  const t2 = performance.now();
+  const finalBuffer = appendFeedAndCut(optimized);
+  const t3 = performance.now();
+
+  // sizes
+  const sRaw = raw.length;
+  const sOpt = optimized.length;
+  const sFinal = finalBuffer.length;
+
+  const ms = (n) => Math.round(n);
+  console.log(
+    `[render] ${meta.tag || ""} html→png=${ms(t1 - t0)}ms, raster=${ms(t2 - t1)}ms, cut=${ms(t3 - t2)}ms, total=${ms(t3 - t0)}ms; ` +
+    `sizes raw=${sRaw}B, raster=${sOpt}B, final=${sFinal}B`
+  );
+
+  return finalBuffer;
+}
+
+// --------------------------
 // Stale-offer/sent sweeper
 // --------------------------
 const OFFER_TIMEOUT_MS = 10_000; // re-offer after 10s
@@ -318,9 +345,10 @@ app.post("/api/print", async (req, res) => {
   (async () => {
     try {
       const html = generateReceiptHTML(order || {});
-      const raw = await renderHtmlToPngFast(html);
-      const optimized = await rasterForStar(raw);
-      const finalBuffer = appendFeedAndCut(optimized);
+      // include a quick tag in logs (first token / rid) to correlate
+      const tag = tokens.length ? `${tokens[0]}:${restaurantIds[0]}` : "batch";
+      const finalBuffer = await renderPipelineWithTiming(html, { tag });
+
       for (const t of tokens) {
         const ref = jobIndex.get(t);
         if (ref?.job) { ref.job.content = finalBuffer; ref.job.status = "queued"; console.log("[render ready]", t); }
