@@ -10,7 +10,7 @@ import sharp from "sharp";
 const app = express();
 app.use(express.json({ limit: "256kb" }));
 
-/** Map restaurants to printers */
+/** Map restaurants to printers (note: some serials repeat on purpose) */
 const PRINTER_CONFIG = [
   { restaurantId: "local", serial: "2581021060600835" },
   { restaurantId: "worldfamous-skyler1", serial: "2581018070600248" },
@@ -27,9 +27,16 @@ const PRINTER_CONFIG = [
   { restaurantId: "arth-printer-3", serial: "2581019070600090" },
 ];
 
-const serialToRestaurant = new Map(
-  PRINTER_CONFIG.map((p) => [p.serial, p.restaurantId])
-);
+/** serial -> array of restaurantIds (preserve all, not last one) */
+const serialToRestaurantList = new Map();
+for (const { serial, restaurantId } of PRINTER_CONFIG) {
+  const s = String(serial).trim();
+  const arr = serialToRestaurantList.get(s) || [];
+  arr.push(restaurantId);
+  serialToRestaurantList.set(s, arr);
+}
+/** round-robin pointer per serial */
+const serialRR = new Map();
 
 // --------------------------
 // In-memory Job Store
@@ -41,17 +48,33 @@ const jobsByRestaurant = new Map(); // restaurantId -> Job[]
 const jobIndex = new Map(); // token -> { restaurantId, job }
 
 function queueFor(restaurantId) {
-  if (!jobsByRestaurant.has(restaurantId))
-    jobsByRestaurant.set(restaurantId, []);
+  if (!jobsByRestaurant.has(restaurantId)) jobsByRestaurant.set(restaurantId, []);
   return jobsByRestaurant.get(restaurantId);
 }
-function nextQueuedJob(serial) {
-  const id = serialToRestaurant.get(String(serial).trim());
-  if (!id) return null;
-  const q = queueFor(id);
-  // Only offer jobs with content ready (FIFO implicit by find)
-  return q.find((j) => j.status === "queued" && j.content);
+
+function nextJobForSerial(serial) {
+  const s = String(serial).trim();
+  const lists = serialToRestaurantList.get(s);
+  if (!lists || lists.length === 0) return null;
+
+  // advance RR pointer
+  const start = serialRR.get(s) ?? 0;
+  for (let i = 0; i < lists.length; i++) {
+    const idx = (start + i) % lists.length;
+    const rid = lists[idx];
+    const q = queueFor(rid);
+
+    // pick first job that is ready to offer: queued + has content
+    const job = q.find(j => j.status === "queued" && j.content);
+    if (job) {
+      serialRR.set(s, (idx + 1) % lists.length);
+      return job;
+    }
+  }
+  // no ready job found; keep pointer
+  return null;
 }
+
 function removeJob(token) {
   const ref = jobIndex.get(token);
   if (!ref) return;
@@ -61,12 +84,13 @@ function removeJob(token) {
   if (idx >= 0) q.splice(idx, 1);
   jobIndex.delete(token);
 }
-function requeueJob(token) {
+
+function requeueToken(token) {
   const ref = jobIndex.get(token);
-  if (ref) {
-    ref.job.status = "queued";
-    ref.job.offeredAt = null;
-  }
+  if (!ref) return;
+  ref.job.status = "queued";
+  ref.job.offeredAt = null;
+  ref.job.sentAt = null;
 }
 
 // --------------------------
@@ -90,17 +114,12 @@ function generateReceiptHTML(order = {}) {
   const customerCity = order.customerDetails?.city || "";
   const customerState = order.customerDetails?.state || "";
   const customerZip = order.customerDetails?.zip || "";
-
   const items = Array.isArray(order.items) ? order.items : [];
 
-  const deliveryFee =
-    typeof order.deliveryFee === "number" ? order.deliveryFee : null;
-  const serviceFee =
-    typeof order.serviceFee === "number" ? order.serviceFee : null;
-  const processingFee =
-    typeof order.processingFee === "number" ? order.processingFee : null;
+  const deliveryFee = typeof order.deliveryFee === "number" ? order.deliveryFee : null;
+  const serviceFee = typeof order.serviceFee === "number" ? order.serviceFee : null;
+  const processingFee = typeof order.processingFee === "number" ? order.processingFee : null;
   const total = typeof order.total === "number" ? order.total : 0;
-
   const deliveryInstructions = order.deliveryInstructions || "";
 
   return `
@@ -109,13 +128,7 @@ function generateReceiptHTML(order = {}) {
     <meta charset="utf-8" />
     <style>
       * { box-sizing: border-box; }
-      body {
-        font-family: monospace;
-        width: 576px;
-        margin: 0;
-        padding: 10px 10px 10px 0px;
-        font-size: 30px;
-      }
+      body { font-family: monospace; width: 576px; margin: 0; padding: 10px 10px 10px 0px; font-size: 30px; }
       .center { text-align: center; }
       .bold { font-weight: bold; font-size: 35px; }
       .line { border-top: 1px dashed #000; margin: 6px 0; }
@@ -132,7 +145,6 @@ function generateReceiptHTML(order = {}) {
 
     <div class="center bold">${restaurantName}</div>
 
-    <!-- Top info: show Provider always; hide Driver + Pickup Time when pickup -->
     <div class="center subinfo">
       ${!isPickup ? `<span>Pickup Driver: <span style="font-weight:bold;">${driverName} - ${driverPhone}</span></span><br/>` : ``}
       ${isPickup ? `<span>Pickup <span style="font-weight:bold;">${customerName}</span></span><br/>` : ``}
@@ -142,7 +154,6 @@ function generateReceiptHTML(order = {}) {
 
     <div class="line"></div>
 
-    <!-- Delivery address: hide entirely on pickup -->
     ${!isPickup ? `
       <div class="center subinfo">
         Delivery Address:
@@ -169,7 +180,6 @@ function generateReceiptHTML(order = {}) {
 
     <div class="line"></div>
 
-    <!-- Fees: hide delivery fee on pickup -->
     ${(!isPickup && deliveryFee !== null) ? `<div class="item"><span>Delivery Fee</span><span>$${deliveryFee.toFixed(2)}</span></div>` : ""}
     ${serviceFee !== null ? `<div class="item"><span>Service Fee</span><span>$${serviceFee.toFixed(2)}</span></div>` : ""}
     ${processingFee !== null ? `<div class="item"><span>Processing Fee</span><span>$${processingFee.toFixed(2)}</span></div>` : ""}
@@ -177,10 +187,7 @@ function generateReceiptHTML(order = {}) {
     <div class="line"></div>
     <div class="item bold"><span>TOTAL</span><span>$${total.toFixed(2)}</span></div>
 
-    <!-- Special delivery instructions: hide on pickup -->
-    ${(!isPickup && deliveryInstructions)
-      ? `<div class="specialInstructions">special delivery instructions: ${deliveryInstructions}</div>`
-      : ""}
+    ${(!isPickup && deliveryInstructions) ? `<div class="specialInstructions">special delivery instructions: ${deliveryInstructions}</div>` : ""}
 
     <div class="center">Thank you!</div>
   </body>
@@ -196,48 +203,25 @@ function getChromiumPath() {
   return null;
 }
 
-// Simple concurrency limiter (no deps)
+// Tiny concurrency limiter
 class Limit {
-  constructor(max = 2) {
-    this.max = max;
-    this.running = 0;
-    this.queue = [];
-  }
-  async run(fn) {
-    if (this.running >= this.max)
-      await new Promise((res) => this.queue.push(res));
-    this.running++;
-    try {
-      return await fn();
-    } finally {
-      this.running--;
-      const next = this.queue.shift();
-      if (next) next();
-    }
-  }
+  constructor(max = 2) { this.max = max; this.running = 0; this.q = []; }
+  async run(fn) { if (this.running >= this.max) await new Promise(r => this.q.push(r));
+    this.running++; try { return await fn(); } finally { this.running--; const n=this.q.shift(); if (n) n(); } }
 }
-const renderLimit = new Limit(2); // tune for your box
+const renderLimit = new Limit(2);
 
 let browserPromise = null;
 async function getBrowser() {
   if (!browserPromise) {
     browserPromise = puppeteer.launch({
       headless: true,
-      executablePath:
-        getChromiumPath() || process.env.PUPPETEER_EXECUTABLE_PATH,
+      executablePath: getChromiumPath() || process.env.PUPPETEER_EXECUTABLE_PATH,
       args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--disk-cache-size=52428800", // 50 MB
-        "--media-cache-size=52428800",
-        "--single-process",
-        "--no-zygote",
-        "--mute-audio",
-        "--font-render-hinting=none",
-        "--disable-background-timer-throttling",
-        "--disable-backgrounding-occluded-windows",
+        "--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage",
+        "--disable-gpu","--disk-cache-size=52428800","--media-cache-size=52428800",
+        "--single-process","--no-zygote","--mute-audio","--font-render-hinting=none",
+        "--disable-background-timer-throttling","--disable-backgrounding-occluded-windows",
       ],
     });
   }
@@ -262,21 +246,14 @@ async function renderHtmlToPngFast(html) {
         optimizeForSpeed: true,
       });
       return buf;
-    } finally {
-      await page.close().catch(() => {});
-    }
+    } finally { await page.close().catch(() => {}); }
   });
 }
 
-// Fast Sharp pipeline (monochrome receipt) — version-safe
-function rasterForStar(rawBuffer) {
-  const PNG_OPTS = {
-    palette: true,
-    colors: 2,
-    compressionLevel: 2,
-    effort: 1,
-  };
-  return sharp(rawBuffer, { failOn: "none" })
+// Raster -> Star
+function rasterForStar(raw) {
+  const PNG_OPTS = { palette: true, colors: 2, compressionLevel: 2, effort: 1 };
+  return sharp(raw, { failOn: "none" })
     .resize({ width: 565, kernel: "nearest" })
     .extend({ bottom: 300, background: { r: 255, g: 255, b: 255 } })
     .grayscale()
@@ -285,75 +262,71 @@ function rasterForStar(rawBuffer) {
     .toBuffer();
 }
 
-// Append StarPRNT feed + cut
 function appendFeedAndCut(buffer) {
-  const FEED_AND_CUT = Buffer.from([0x1b, 0x64, 0x02]); // ESC d 2
+  const FEED_AND_CUT = Buffer.from([0x1b, 0x64, 0x02]);
   return Buffer.concat([buffer, FEED_AND_CUT]);
 }
 
 // --------------------------
-// Offer timeout sweeper
+// Stale-offer/sent sweeper
 // --------------------------
-const OFFER_TIMEOUT_MS = 60_000; // consider 30–90s depending on your printer poll interval
+const OFFER_TIMEOUT_MS = 10_000; // re-offer after 10s
+const SENT_TIMEOUT_MS  = 20_000; // consider sent stale after 20s
 setInterval(() => {
   const now = Date.now();
   for (const [rid, q] of jobsByRestaurant.entries()) {
     for (const j of q) {
       if (j.status === "offered" && j.offeredAt && now - j.offeredAt > OFFER_TIMEOUT_MS) {
-        console.warn("[requeue-stale-offered]", { restaurantId: rid, token: j.id });
-        j.status = "queued";
-        j.offeredAt = null;
+        console.warn("[sweep->requeue offered]", { rid, token: j.id });
+        j.status = "queued"; j.offeredAt = null;
+      }
+      if (j.status === "sent" && j.sentAt && now - j.sentAt > SENT_TIMEOUT_MS) {
+        console.warn("[sweep->requeue sent]", { rid, token: j.id });
+        j.status = "queued"; j.sentAt = null;
       }
     }
   }
-}, 5_000);
+}, 3_000);
 
 // --------------------------
 // Routes
 // --------------------------
 
-// Create jobs fast; render in background
+// Create jobs; render async
 app.post("/api/print", async (req, res) => {
   const { restaurantId, order } = req.body || {};
   if (!restaurantId) return res.status(400).json({ ok: false, error: "Missing restaurantId" });
 
   const restaurantIds = Array.isArray(restaurantId) ? restaurantId : [restaurantId];
-  const unknown = restaurantIds.filter((rid) => !PRINTER_CONFIG.some((p) => p.restaurantId === rid));
-  if (unknown.length) {
-    return res.status(404).json({ ok: false, error: `Unknown restaurantId(s): ${unknown.join(", ")}` });
-  }
 
-  // Create queued jobs immediately (no content yet)
+  // validate all ids first
+  const validIds = new Set(PRINTER_CONFIG.map(p => p.restaurantId));
+  const bad = restaurantIds.filter(r => !validIds.has(r));
+  if (bad.length) return res.status(404).json({ ok: false, error: `Unknown restaurantId(s): ${bad.join(", ")}` });
+
   const tokens = [];
   for (const rid of restaurantIds) {
     const id = makeId();
-    const job = { id, content: null, status: "queued", offeredAt: null, restaurantId: rid };
+    const job = { id, content: null, status: "queued", offeredAt: null, sentAt: null, restaurantId: rid };
     queueFor(rid).push(job);
     jobIndex.set(id, { restaurantId: rid, job });
     tokens.push(id);
   }
 
-  // Respond ASAP so callers (Lambda) don't block
   res.status(202).json({ ok: true, tokens });
 
-  // Background render
   (async () => {
     try {
       const html = generateReceiptHTML(order || {});
       const raw = await renderHtmlToPngFast(html);
       const optimized = await rasterForStar(raw);
       const finalBuffer = appendFeedAndCut(optimized);
-
       for (const t of tokens) {
         const ref = jobIndex.get(t);
-        if (ref?.job) {
-          ref.job.content = finalBuffer;
-          ref.job.status = "queued";
-          console.log("[render] job ready:", t);
-        }
+        if (ref?.job) { ref.job.content = finalBuffer; ref.job.status = "queued"; console.log("[render ready]", t); }
       }
     } catch (e) {
-      console.error("background print render failed", e);
+      console.error("background render failed", e);
       for (const t of tokens) {
         const ref = jobIndex.get(t);
         if (ref?.job) ref.job.status = "failed";
@@ -362,18 +335,28 @@ app.post("/api/print", async (req, res) => {
   })();
 });
 
-// CloudPRNT poll — only offer when content is ready
+// Poll: offer next job for this serial (round-robin across its restaurant queues)
 app.post("/cloudprnt", (req, res) => {
-  const serial = req.headers["x-star-serial-number"];
-  const restaurantId = serialToRestaurant.get(String(serial).trim());
-  if (!restaurantId) return res.json({ jobReady: false });
+  const serial = String(req.headers["x-star-serial-number"] || "").trim();
+  const rids = serialToRestaurantList.get(serial);
+  if (!rids) return res.json({ jobReady: false });
 
-  const job = nextQueuedJob(serial);
+  // Before offering, aggressively unstick stale jobs in those queues
+  const now = Date.now();
+  for (const rid of rids) {
+    const q = queueFor(rid);
+    for (const j of q) {
+      if (j.status === "offered" && j.offeredAt && now - j.offeredAt > OFFER_TIMEOUT_MS) { j.status = "queued"; j.offeredAt = null; }
+      if (j.status === "sent"    && j.sentAt    && now - j.sentAt    > SENT_TIMEOUT_MS)  { j.status = "queued"; j.sentAt = null; }
+    }
+  }
+
+  const job = nextJobForSerial(serial);
   if (!job) return res.json({ jobReady: false });
 
   job.status = "offered";
   job.offeredAt = Date.now();
-  console.log("[offer]", { serial: String(serial), restaurantId, token: job.id });
+  console.log("[offer]", { serial, rid: job.restaurantId, token: job.id });
 
   res.json({
     jobReady: true,
@@ -383,7 +366,7 @@ app.post("/cloudprnt", (req, res) => {
   });
 });
 
-// Printer fetches job content
+// Printer fetches job content -> mark as 'sent'
 app.get("/cloudprnt", (req, res) => {
   const { token, type } = req.query;
   if (!token) return res.status(400).send("Missing token");
@@ -392,52 +375,50 @@ app.get("/cloudprnt", (req, res) => {
   const ref = jobIndex.get(String(token));
   if (!ref) return res.sendStatus(404);
 
-  if (!ref.job.content) {
-    console.log("Printer requested job", token, "but content not ready yet → jobReady:false");
+  const job = ref.job;
+  if (!job.content) {
+    console.log("[get not-ready]", { token: job.id, rid: ref.restaurantId });
     return res.json({ jobReady: false });
   }
 
-  console.log("Serving job", token, "for restaurant", ref.restaurantId);
+  // Mark sent (printer has fetched data)
+  job.status = "sent";
+  job.sentAt = Date.now();
+
+  console.log("[serve]", { token: job.id, rid: ref.restaurantId });
+  const buf = job.content;
   res.setHeader("Content-Type", "image/png");
-  res.send(ref.job.content);
+  res.setHeader("Content-Length", String(buf.length));
+  res.send(buf);
 });
 
-// Health
-app.get("/health", (_req, res) => res.json({ ok: true }));
-
-// Confirmation (delete / requeue)
+// Printer confirms -> done or requeue
 app.delete("/cloudprnt", (req, res) => {
   const { token, code } = req.query;
   if (!token) return res.status(400).send("Missing token");
-
   const codeStr = String(code || "").toUpperCase();
-  const success = codeStr === "OK" || codeStr.startsWith("2");
 
   const ref = jobIndex.get(String(token));
-  if (!ref) {
-    console.warn("[delete-missing-token]", { token });
-    return res.sendStatus(200);
-  }
+  if (!ref) { console.warn("[delete-missing]", { token }); return res.sendStatus(200); }
 
-  if (success) {
-    console.log("[delete-ok]", { token, restaurantId: ref.restaurantId });
+  if (codeStr === "OK" || codeStr.startsWith("2")) {
+    ref.job.status = "done";
+    console.log("[done]", { token: ref.job.id, rid: ref.restaurantId, code: codeStr });
     removeJob(String(token));
   } else {
-    console.warn("[delete-requeue]", { token, code: codeStr });
-    requeueJob(String(token));
+    console.warn("[requeue on delete]", { token: ref.job.id, code: codeStr });
+    requeueToken(String(token));
   }
   res.sendStatus(200);
 });
 
-// Debug: inspect a queue
+// Debug helpers
 app.get("/debug/queue/:rid", (req, res) => {
   const q = queueFor(req.params.rid);
-  res.json(q.map(j => ({
-    id: j.id,
-    status: j.status,
-    hasContent: !!j.content,
-    offeredAt: j.offeredAt
-  })));
+  res.json(q.map(j => ({ id: j.id, status: j.status, hasContent: !!j.content, offeredAt: j.offeredAt, sentAt: j.sentAt })));
+});
+app.get("/debug/serial/:serial", (req, res) => {
+  res.json({ restaurants: serialToRestaurantList.get(String(req.params.serial).trim()) || [] });
 });
 
 // --------------------------
@@ -446,30 +427,9 @@ app.get("/debug/queue/:rid", (req, res) => {
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, async () => {
   console.log(`CloudPRNT server running on :${PORT}`);
-  // Warm browser for first render (optional, small spin-up)
-  try {
-    await getBrowser();
-    console.log("Chromium warmed");
-  } catch (e) {
-    console.warn("Chromium warm-up failed:", e?.message || e);
-  }
+  try { await getBrowser(); console.log("Chromium warmed"); } catch (e) { console.warn("Chromium warm-up failed:", e?.message || e); }
 });
 
-// Graceful shutdown closes browser
-let USER_DATA_DIR = null; // only if you add one later
-async function closeBrowser() {
-  try {
-    if (browserPromise) (await browserPromise).close();
-  } catch {}
-  try {
-    if (USER_DATA_DIR) fs.rmSync(USER_DATA_DIR, { recursive: true, force: true });
-  } catch {}
-}
-process.on("SIGINT", async () => {
-  await closeBrowser();
-  process.exit(0);
-});
-process.on("SIGTERM", async () => {
-  await closeBrowser();
-  process.exit(0);
-});
+async function closeBrowser() { try { if (browserPromise) (await browserPromise).close(); } catch {} }
+process.on("SIGINT", async () => { await closeBrowser(); process.exit(0); });
+process.on("SIGTERM", async () => { await closeBrowser(); process.exit(0); });
