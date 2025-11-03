@@ -227,6 +227,8 @@ async function getBrowser() {
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
+        "--disk-cache-size=1",            // keep disk cache tiny
+        "--media-cache-size=1",
         "--single-process",
         "--no-zygote",
         "--mute-audio",
@@ -398,7 +400,7 @@ app.get("/cloudprnt", (req, res) => {
   }
 
   console.log("Serving job", token, "for restaurant", ref.restaurantId);
-  
+
   res.setHeader("Content-Type", "image/png");
   res.send(ref.job.content);
 });
