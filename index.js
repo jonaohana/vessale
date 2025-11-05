@@ -223,6 +223,7 @@ async function getBrowser() {
         "--disable-gpu","--disk-cache-size=52428800","--media-cache-size=52428800",
         "--single-process","--no-zygote","--mute-audio","--font-render-hinting=none",
         "--disable-background-timer-throttling","--disable-backgrounding-occluded-windows",
+        "--disk-cache-size=0" // <--- prevents /tmp ballooning
       ],
     });
   }
