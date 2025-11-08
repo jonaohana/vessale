@@ -13,19 +13,19 @@ app.use(express.json({ limit: "256kb" }));
 
 /** Map restaurants to printers (note: some serials repeat on purpose) */
 const PRINTER_CONFIG = [
-  { locationId: "local", serial: "2581021060600835" },
-  { locationId: "worldfamous-skyler1", serial: "2581018070600248" },
-  { locationId: "worldfamous-skyler2", serial: "2581019070600037" },
-  // { locationId: "worldfamous-printer1", serial: "2581018070600248" },
-  { locationId: "worldfamous-printer2", serial: "2581019070600037" },
-  { locationId: "worldfamous-downey-printer1", serial: "2581018080600059" },
-  { locationId: "worldfamous-downey-printer2", serial: "2581018070600306" },
-  { locationId: "worldfamous-bell-printer1", serial: "2581019090600209" },
-  { locationId: "worldfamous-bell-printer2", serial: "2581018080600564" },
-  { locationId: "worldfamous-market-printer", serial: "2581018070600273" },
-  { locationId: "arth-printer-1", serial: "2581019070600083" },
-  { locationId: "arth-printer-2", serial: "2581019090600186" },
-  { locationId: "arth-printer-3", serial: "2581019070600090" },
+  { restaurantId: "local", serial: "2581021060600835" },
+  { restaurantId: "worldfamous-skyler1", serial: "2581018070600248" },
+  { restaurantId: "worldfamous-skyler2", serial: "2581019070600037" },
+  // { restaurantId: "worldfamous-printer1", serial: "2581018070600248" },
+  { restaurantId: "worldfamous-printer2", serial: "2581019070600037" },
+  { restaurantId: "worldfamous-downey-printer1", serial: "2581018080600059" },
+  { restaurantId: "worldfamous-downey-printer2", serial: "2581018070600306" },
+  { restaurantId: "worldfamous-bell-printer1", serial: "2581019090600209" },
+  { restaurantId: "worldfamous-bell-printer2", serial: "2581018080600564" },
+  { restaurantId: "worldfamous-market-printer", serial: "2581018070600273" },
+  { restaurantId: "arth-printer-1", serial: "2581019070600083" },
+  { restaurantId: "arth-printer-2", serial: "2581019090600186" },
+  { restaurantId: "arth-printer-3", serial: "2581019070600090" },
 ];
 
 /** serial -> array of restaurantIds (preserve all, not last one) */
@@ -362,22 +362,22 @@ setInterval(() => {
 
 // Create jobs; render async
 app.post("/api/print", async (req, res) => {
-  const { locationId, order } = req.body || {};
-  if (!locationId) return res.status(400).json({ ok: false, error: "Missing locationId" });
+  const { restaurantId, order } = req.body || {};
+  if (!restaurantId) return res.status(400).json({ ok: false, error: "Missing restaurantId" });
 
-  const locationIds = Array.isArray(locationId) ? locationId : [locationId];
+  const restaurantIds = Array.isArray(restaurantId) ? restaurantId : [restaurantId];
 
   // validate all ids first
-  const validIds = new Set(PRINTER_CONFIG.map(p => p.locationId));
-  const bad = locationIds.filter(r => !validIds.has(r));
-  if (bad.length) return res.status(404).json({ ok: false, error: `Unknown locationId(s): ${bad.join(", ")}` });
+  const validIds = new Set(PRINTER_CONFIG.map(p => p.restaurantId));
+  const bad = restaurantIds.filter(r => !validIds.has(r));
+  if (bad.length) return res.status(404).json({ ok: false, error: `Unknown restaurantId(s): ${bad.join(", ")}` });
 
   const tokens = [];
-  for (const rid of locationIds) {
+  for (const rid of restaurantIds) {
     const id = makeId();
-    const job = { id, content: null, status: "queued", offeredAt: null, sentAt: null, locationId: rid };
+    const job = { id, content: null, status: "queued", offeredAt: null, sentAt: null, restaurantId: rid };
     queueFor(rid).push(job);
-    jobIndex.set(id, { locationId: rid, job });
+    jobIndex.set(id, { restaurantId: rid, job });
     tokens.push(id);
   }
 
@@ -387,7 +387,7 @@ app.post("/api/print", async (req, res) => {
     try {
       const html = generateReceiptHTML(order || {});
       // include a quick tag in logs (first token / rid) to correlate
-      const tag = tokens.length ? `${tokens[0]}:${locationIds[0]}` : "batch";
+      const tag = tokens.length ? `${tokens[0]}:${restaurantIds[0]}` : "batch";
       const finalBuffer = await renderPipelineWithTiming(html, { tag });
 
       for (const t of tokens) {
@@ -425,7 +425,7 @@ app.post("/cloudprnt", (req, res) => {
 
   job.status = "offered";
   job.offeredAt = Date.now();
-  console.log("[offer]", { serial, rid: job.locationId, token: job.id });
+  console.log("[offer]", { serial, rid: job.restaurantId, token: job.id });
 
   res.json({
     jobReady: true,
@@ -446,7 +446,7 @@ app.get("/cloudprnt", (req, res) => {
 
   const job = ref.job;
   if (!job.content) {
-    console.log("[get not-ready]", { token: job.id, rid: ref.locationId });
+    console.log("[get not-ready]", { token: job.id, rid: ref.restaurantId });
     return res.json({ jobReady: false });
   }
 
@@ -454,7 +454,7 @@ app.get("/cloudprnt", (req, res) => {
   job.status = "sent";
   job.sentAt = Date.now();
 
-  console.log("[serve]", { token: job.id, rid: ref.locationId });
+  console.log("[serve]", { token: job.id, rid: ref.restaurantId });
   const buf = job.content;
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Content-Length", String(buf.length));
@@ -472,7 +472,7 @@ app.delete("/cloudprnt", (req, res) => {
 
   if (codeStr === "OK" || codeStr.startsWith("2")) {
     ref.job.status = "done";
-    console.log("[done]", { token: ref.job.id, rid: ref.locationId, code: codeStr });
+    console.log("[done]", { token: ref.job.id, rid: ref.restaurantId, code: codeStr });
     removeJob(String(token));
   } else {
     console.warn("[requeue on delete]", { token: ref.job.id, code: codeStr });
