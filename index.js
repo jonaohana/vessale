@@ -13,19 +13,19 @@ app.use(express.json({ limit: "256kb" }));
 
 /** Map restaurants to printers (note: some serials repeat on purpose) */
 const PRINTER_CONFIG = [
-  { restaurantId: "local", serial: "2581021060600835" },
-  { restaurantId: "worldfamous-skyler1", serial: "2581018070600248" },
-  { restaurantId: "worldfamous-skyler2", serial: "2581019070600037" },
-  // { restaurantId: "worldfamous-printer1", serial: "2581018070600248" },
-  { restaurantId: "worldfamous-printer2", serial: "2581019070600037" },
-  { restaurantId: "worldfamous-downey-printer1", serial: "2581018080600059" },
-  { restaurantId: "worldfamous-downey-printer2", serial: "2581018070600306" },
-  { restaurantId: "worldfamous-bell-printer1", serial: "2581019090600209" },
-  { restaurantId: "worldfamous-bell-printer2", serial: "2581018080600564" },
-  { restaurantId: "worldfamous-market-printer", serial: "2581018070600273" },
-  { restaurantId: "arth-printer-1", serial: "2581019070600083" },
-  { restaurantId: "arth-printer-2", serial: "2581019090600186" },
-  { restaurantId: "arth-printer-3", serial: "2581019070600090" },
+  { locationId: "local", serial: "2581021060600835" },
+  { locationId: "worldfamous-skyler1", serial: "2581018070600248" },
+  { locationId: "worldfamous-skyler2", serial: "2581019070600037" },
+  // { locationId: "worldfamous-printer1", serial: "2581018070600248" },
+  { locationId: "worldfamous-printer2", serial: "2581019070600037" },
+  { locationId: "worldfamous-downey-printer1", serial: "2581018080600059" },
+  { locationId: "worldfamous-downey-printer2", serial: "2581018070600306" },
+  { locationId: "worldfamous-bell-printer1", serial: "2581019090600209" },
+  { locationId: "worldfamous-bell-printer2", serial: "2581018080600564" },
+  { locationId: "worldfamous-market-printer", serial: "2581018070600273" },
+  { locationId: "arth-printer-1", serial: "2581019070600083" },
+  { locationId: "arth-printer-2", serial: "2581019090600186" },
+  { locationId: "arth-printer-3", serial: "2581019070600090" },
 ];
 
 /** serial -> array of restaurantIds (preserve all, not last one) */
