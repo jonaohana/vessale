@@ -611,14 +611,80 @@ app.get("/debug/seen", (req, res) => {
 });
 
 // --------------------------
-// Startup & Shutdown
+// Startup & Shutdown (HTTP + HTTPS)
 // --------------------------
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, async () => {
-  console.log(`CloudPRNT server running on :${PORT}`);
-  try { await getBrowser(); console.log("Chromium warmed"); } catch (e) { console.warn("Chromium warm-up failed:", e?.message || e); }
-});
+const HTTP_PORT = Number(process.env.PORT || 8080);          // plain HTTP port (and redirect listener)
+const HTTPS_PORT = Number(process.env.HTTPS_PORT || 8443);   // HTTPS port if certs provided
 
-async function closeBrowser() { try { if (browserPromise) (await browserPromise).close(); } catch {} }
-process.on("SIGINT", async () => { await closeBrowser(); process.exit(0); });
-process.on("SIGTERM", async () => { await closeBrowser(); process.exit(0); });
+const SSL_KEY = '/home/ubuntu/key.pem';   // e.g. /etc/letsencrypt/live/your.domain/privkey.pem
+const SSL_CERT = '/home/ubuntu/cert.pem'; // e.g. /etc/letsencrypt/live/your.domain/fullchain.pem
+const SSL_CA = process.env.SSL_CA_PATH;     // optional bundle/chain
+const FORCE_REDIRECT = (process.env.FORCE_HTTP_TO_HTTPS ?? "true").toLowerCase() !== "false";
+
+let httpServer = null;
+let httpsServer = null;
+
+// Warm Chromium at boot (non-blocking)
+(async () => {
+  try { await getBrowser(); console.log("Chromium warmed"); } 
+  catch (e) { console.warn("Chromium warm-up failed:", e?.message || e); }
+})();
+
+function startHttpRedirect() {
+  // Lightweight redirect server → always to HTTPS (preserves host + path)
+  httpServer = http.createServer((req, res) => {
+    const host = req.headers.host || `localhost:${HTTPS_PORT}`;
+    const location = `https://${host}${req.url || "/"}`;
+    res.statusCode = 301;
+    res.setHeader("Location", location);
+    res.end();
+  }).listen(HTTP_PORT, () => {
+    console.log(`HTTP redirect server listening on :${HTTP_PORT} → https://…`);
+  });
+}
+
+function startHttpPlain() {
+  httpServer = http.createServer(app).listen(HTTP_PORT, () => {
+    console.log(`CloudPRNT server (HTTP) running on :${HTTP_PORT}`);
+  });
+}
+
+function startHttps() {
+  const tlsOptions = {
+    key: fs.readFileSync(SSL_KEY),
+    cert: fs.readFileSync(SSL_CERT),
+    ca: (SSL_CA && fs.existsSync(SSL_CA)) ? fs.readFileSync(SSL_CA) : undefined,
+    minVersion: "TLSv1.2",
+    // honorForwarded: with Express trust proxy, req.protocol reflects X-Forwarded-Proto when proxied
+  };
+  httpsServer = https.createServer(tlsOptions, app).listen(HTTPS_PORT, () => {
+    console.log(`CloudPRNT server (HTTPS) running on :${HTTPS_PORT}`);
+  });
+
+  if (FORCE_REDIRECT) {
+    startHttpRedirect(); // keep port :PORT to redirect browsers/devs to HTTPS
+  } else {
+    console.log("HTTP→HTTPS redirect disabled (FORCE_HTTP_TO_HTTPS=false).");
+  }
+}
+
+// Decide which servers to start
+if (SSL_KEY && SSL_CERT && fs.existsSync(SSL_KEY) && fs.existsSync(SSL_CERT)) {
+  startHttps();
+} else {
+  console.warn("HTTPS certs not found. Starting HTTP only. (Set SSL_KEY_PATH & SSL_CERT_PATH to enable TLS)");
+  startHttpPlain();
+}
+
+// Graceful shutdown
+async function closeBrowser() {
+  try { if (browserPromise) (await browserPromise).close(); } catch {}
+}
+async function shutdown() {
+  try { await closeBrowser(); } catch {}
+  try { if (httpsServer) await new Promise(r => httpsServer.close(r)); } catch {}
+  try { if (httpServer) await new Promise(r => httpServer.close(r)); } catch {}
+  process.exit(0);
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
