@@ -10,6 +10,7 @@ import { performance } from "perf_hooks"; // ← timing
 // --------------------------
 const app = express();
 app.use(express.json({ limit: "256kb" }));
+app.set("trust proxy", true); // so req.ip works behind a proxy/ELB
 
 /** Map restaurants to printers (note: some serials repeat on purpose) */
 const PRINTER_CONFIG = [
@@ -92,6 +93,39 @@ function requeueToken(token) {
   ref.job.status = "queued";
   ref.job.offeredAt = null;
   ref.job.sentAt = null;
+}
+
+// --------------------------
+// Presence tracking (who's polling)
+// --------------------------
+const seenBySerial = new Map(); // serial -> { serial, restaurants[], lastSeen, ip, ua, path }
+const POLL_ONLINE_WINDOW_MS = 15_000; // printers poll every 5s → 15s is a safe online window
+
+function markSeen(serial, req) {
+  const s = String(serial).trim();
+  if (!s) return;
+  const restaurants = serialToRestaurantList.get(s) || [];
+  seenBySerial.set(s, {
+    serial: s,
+    restaurants,
+    lastSeen: Date.now(),
+    ip: req.ip,
+    userAgent: req.get("user-agent") || "",
+    path: req.originalUrl || req.url || "",
+  });
+}
+function isOnline(rec) {
+  return Date.now() - rec.lastSeen <= POLL_ONLINE_WINDOW_MS;
+}
+function toPublicPresence(rec) {
+  const ago = Date.now() - rec.lastSeen;
+  return {
+    serial: rec.serial,
+    restaurants: rec.restaurants,
+    lastSeen: new Date(rec.lastSeen).toISOString(),
+    msAgo: ago,
+    ip: rec.ip,
+  };
 }
 
 // --------------------------
@@ -207,8 +241,12 @@ function getChromiumPath() {
 // Tiny concurrency limiter
 class Limit {
   constructor(max = 2) { this.max = max; this.running = 0; this.q = []; }
-  async run(fn) { if (this.running >= this.max) await new Promise(r => this.q.push(r));
-    this.running++; try { return await fn(); } finally { this.running--; const n=this.q.shift(); if (n) n(); } }
+  async run(fn) {
+    if (this.running >= this.max) await new Promise(r => this.q.push(r));
+    this.running++;
+    try { return await fn(); }
+    finally { this.running--; const n=this.q.shift(); if (n) n(); }
+  }
 }
 const renderLimit = new Limit(2);
 
@@ -220,10 +258,10 @@ async function getBrowser() {
       executablePath: getChromiumPath() || process.env.PUPPETEER_EXECUTABLE_PATH,
       args: [
         "--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage",
-        "--disable-gpu","--disk-cache-size=52428800","--media-cache-size=52428800",
+        "--disable-gpu","--media-cache-size=52428800",
         "--single-process","--no-zygote","--mute-audio","--font-render-hinting=none",
         "--disable-background-timer-throttling","--disable-backgrounding-occluded-windows",
-        "--disk-cache-size=0" // <--- prevents /tmp ballooning
+        "--disk-cache-size=0" // keep temp small
       ],
     });
   }
@@ -246,19 +284,16 @@ async function renderHtmlToPngFast(html) {
       await page.setRequestInterception(true);
       page.on('request', req => {
         const url = req.url();
-        // Allow data: (logo), everything else abort (no network)
         if (url.startsWith('data:')) return req.continue();
-        // Block heavy types outright
         const type = req.resourceType();
         if (type === 'image' || type === 'font' || type === 'media' || type === 'stylesheet' || type === 'xhr' || type === 'fetch') {
           return req.abort();
         }
-        // In practice nothing else should fire for setContent, but be safe:
         return req.abort();
       });
 
       const tSetContent0 = Date.now();
-      await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15_000 });
       const tSetContent1 = Date.now();
 
       // Compute exact content height (no cap) and take a single clipped shot
@@ -267,7 +302,7 @@ async function renderHtmlToPngFast(html) {
           document.body.scrollHeight,
           document.documentElement.scrollHeight
         );
-        return Math.min(h, 30_000); // guardrail to prevent absurd heights
+        return Math.min(h, 30_000); // guardrail
       });
 
       const tShot0 = Date.now();
@@ -290,7 +325,6 @@ async function renderHtmlToPngFast(html) {
     }
   });
 }
-
 
 // Raster -> Star
 function rasterForStar(raw) {
@@ -321,7 +355,6 @@ async function renderPipelineWithTiming(html, meta = {}) {
   const finalBuffer = appendFeedAndCut(optimized);
   const t3 = performance.now();
 
-  // sizes
   const sRaw = raw.length;
   const sOpt = optimized.length;
   const sFinal = finalBuffer.length;
@@ -386,7 +419,6 @@ app.post("/api/print", async (req, res) => {
   (async () => {
     try {
       const html = generateReceiptHTML(order || {});
-      // include a quick tag in logs (first token / rid) to correlate
       const tag = tokens.length ? `${tokens[0]}:${restaurantIds[0]}` : "batch";
       const finalBuffer = await renderPipelineWithTiming(html, { tag });
 
@@ -407,6 +439,12 @@ app.post("/api/print", async (req, res) => {
 // Poll: offer next job for this serial (round-robin across its restaurant queues)
 app.post("/cloudprnt", (req, res) => {
   const serial = String(req.headers["x-star-serial-number"] || "").trim();
+
+  // record presence (printers poll every ~5s)
+  if (serial) {
+    markSeen(serial, req);
+  }
+
   const rids = serialToRestaurantList.get(serial);
   if (!rids) return res.json({ jobReady: false });
 
@@ -488,6 +526,63 @@ app.get("/debug/queue/:rid", (req, res) => {
 });
 app.get("/debug/serial/:serial", (req, res) => {
   res.json({ restaurants: serialToRestaurantList.get(String(req.params.serial).trim()) || [] });
+});
+
+// --------------------------
+// Presence endpoints
+// --------------------------
+
+/**
+ * GET /api/printers/online
+ * Returns all printers that have polled within POLL_ONLINE_WINDOW_MS.
+ * Each item: { serial, restaurants[], lastSeen, msAgo, ip }
+ */
+app.get("/api/printers/online", (req, res) => {
+  const printers = Array.from(seenBySerial.values())
+    .filter(isOnline)
+    .map(toPublicPresence)
+    .sort((a, b) => a.msAgo - b.msAgo); // newest first
+  res.json({ ok: true, windowMs: POLL_ONLINE_WINDOW_MS, count: printers.length, printers });
+});
+
+/**
+ * GET /api/printers
+ * Returns every configured printer with status online/offline and last seen info if known.
+ */
+app.get("/api/printers", (req, res) => {
+  const uniqueSerials = new Set(PRINTER_CONFIG.map(p => String(p.serial).trim()));
+  const out = Array.from(uniqueSerials).map((serial) => {
+    const rec = seenBySerial.get(serial);
+    const restaurants = serialToRestaurantList.get(serial) || [];
+    if (!rec) {
+      return { serial, restaurants, status: "offline", lastSeen: null, msAgo: null, ip: null };
+    }
+    const base = toPublicPresence(rec);
+    return { ...base, status: isOnline(rec) ? "online" : "offline" };
+  });
+
+  // include any currently seen serials that aren't in config (safety)
+  for (const [serial, rec] of seenBySerial) {
+    if (!uniqueSerials.has(serial)) {
+      const base = toPublicPresence(rec);
+      out.push({ ...base, status: isOnline(rec) ? "online" : "offline" });
+    }
+  }
+
+  out.sort((a, b) => {
+    if (a.status !== b.status) return a.status === "online" ? -1 : 1;
+    const aAgo = a.msAgo ?? Number.POSITIVE_INFINITY;
+    const bAgo = b.msAgo ?? Number.POSITIVE_INFINITY;
+    return aAgo - bAgo;
+  });
+
+  res.json({ ok: true, count: out.length, printers: out });
+});
+
+// Optional: raw presence dump for debugging
+app.get("/debug/seen", (req, res) => {
+  const all = Array.from(seenBySerial.values()).map(toPublicPresence);
+  res.json({ windowMs: POLL_ONLINE_WINDOW_MS, printers: all });
 });
 
 // --------------------------
