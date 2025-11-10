@@ -1,4 +1,6 @@
 // printer-server.js
+import http from "http";
+import https from "https";
 import express from "express";
 import puppeteer from "puppeteer";
 import fs from "fs";
