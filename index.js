@@ -51,7 +51,7 @@ app.use(cors({
 }));
 
 // handle preflight
-app.options("*", cors());
+app.options(/.*/, cors());
 
 /** serial -> array of restaurantIds (preserve all, not last one) */
 const serialToRestaurantList = new Map();
