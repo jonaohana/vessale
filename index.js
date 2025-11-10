@@ -4,6 +4,15 @@ import puppeteer from "puppeteer";
 import fs from "fs";
 import sharp from "sharp";
 import { performance } from "perf_hooks"; // ← timing
+import cors from "cors";
+
+// allow your local dev origins
+const ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+];
 
 // --------------------------
 // Config & App
@@ -28,6 +37,21 @@ const PRINTER_CONFIG = [
   { restaurantId: "arth-printer-2", serial: "2581019090600186" },
   { restaurantId: "arth-printer-3", serial: "2581019070600090" },
 ];
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // allow same-origin or non-browser requests (no Origin header)
+    if (!origin) return cb(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(new Error("Not allowed by CORS"));
+  },
+  methods: ["GET", "POST", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "X-Requested-With", "X-Star-Serial-Number"],
+  credentials: false, // set true only if you actually send cookies/auth
+}));
+
+// handle preflight
+app.options("*", cors());
 
 /** serial -> array of restaurantIds (preserve all, not last one) */
 const serialToRestaurantList = new Map();
