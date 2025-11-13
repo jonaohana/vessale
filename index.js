@@ -620,7 +620,7 @@ const HTTPS_PORT = Number(process.env.HTTPS_PORT || 8443);   // HTTPS port if ce
 
 const SSL_KEY = '/home/ubuntu/key.pem';   // e.g. /etc/letsencrypt/live/your.domain/privkey.pem
 const SSL_CERT = '/home/ubuntu/cert.pem'; // e.g. /etc/letsencrypt/live/your.domain/fullchain.pem
-const SSL_CA = process.env.SSL_CA_PATH;     // optional bundle/chain
+const SSL_CA = '/home/ubuntu/bundle.crt'    // optional bundle/chain
 const FORCE_REDIRECT = (process.env.FORCE_HTTP_TO_HTTPS ?? "true").toLowerCase() !== "false";
 
 let httpServer = null;
