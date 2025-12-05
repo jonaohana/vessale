@@ -46,7 +46,9 @@ app.use(cors({
     // allow same-origin or non-browser requests (no Origin header)
     if (!origin) return cb(null, true);
     if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    return cb(new Error("Not allowed by CORS"));
+    // Reject with false instead of Error - sends proper CORS headers
+    console.warn(`CORS rejected origin: ${origin}`);
+    return cb(null, false);
   },
   methods: ["GET", "POST", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "X-Requested-With", "X-Star-Serial-Number"],
