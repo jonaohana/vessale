@@ -1,0 +1,20 @@
+[Unit]
+Description=Vessel Printer Server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/printer
+ExecStart=/usr/bin/node /home/ubuntu/printer/index.js
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/printer/printer.log
+StandardError=append:/var/log/printer/printer-error.log
+
+# Environment variables (adjust as needed)
+Environment=NODE_ENV=production
+Environment=PORT=3000
+
+[Install]
+WantedBy=multi-user.target
