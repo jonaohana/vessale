@@ -6,15 +6,17 @@ After=network.target
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/vessale
-ExecStart=/usr/bin/node /home/ubuntu/vessale/index.js
+ExecStart=/usr/bin/env node /home/ubuntu/vessale/index.js
 Restart=always
 RestartSec=10
 StandardOutput=append:/var/log/printer/printer.log
 StandardError=append:/var/log/printer/printer-error.log
+SyslogIdentifier=printer
 
-# Environment variables (adjust as needed)
+# Environment variables
 Environment=NODE_ENV=production
 Environment=PORT=3000
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=multi-user.target
