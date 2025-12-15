@@ -200,6 +200,8 @@ function generateReceiptHTML(order = {}) {
       .logo { display: block; margin: 0 auto 15px auto; max-width: 200px; }
       .subinfo { font-size: 24px; margin-top: 10px; margin-bottom: 10px; }
       .specialInstructions { font-size: 22px; font-style: italic; margin-top: 8px; border: 1px solid #000; padding: 4px; }
+      .modifiers { font-size: 22px; margin-left: 20px; margin-top: 4px; color: #333; }
+      .modifier-item { display: flex; justify-content: space-between; margin-top: 2px; }
     </style>
   </head>
   <body>
@@ -232,12 +234,26 @@ function generateReceiptHTML(order = {}) {
       const name = item?.name || "Item";
       const quantity = item?.quantity || 1;
       const price = typeof item?.price === "number" ? item.price : 0;
+      const modifierTotal = typeof item?.modifierTotal === "number" ? item.modifierTotal : 0;
+      const itemTotal = (price + modifierTotal) * quantity;
       const special = item?.specialInstructions || "";
+      const modifiers = Array.isArray(item?.selectedModifiers) ? item.selectedModifiers : [];
+      
       return `
         <div class="item">
           <span>${quantity}x ${name}</span>
-          <span>$${(quantity * price).toFixed(2)}</span>
+          <span>$${itemTotal.toFixed(2)}</span>
         </div>
+        ${modifiers.length > 0 ? `
+          <div class="modifiers">
+            ${modifiers.map(mod => `
+              <div class="modifier-item">
+                <span>+ ${mod.modifierName}</span>
+                ${mod.modifierPrice > 0 ? `<span>+$${mod.modifierPrice.toFixed(2)}</span>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        ` : ""}
         ${special ? `<div class="specialInstructions">special instructions: ${special}</div>` : ""}
       `;
     }).join("")}
