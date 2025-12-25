@@ -241,8 +241,8 @@ function generateReceiptHTML(order = {}) {
       
       return `
         <div class="item">
-          <span>${quantity}x ${name}</span>
-          <span>$${itemTotal.toFixed(2)}</span>
+          <span style="font-weight: bold;">${quantity}x ${name}</span>
+          <span style="font-weight: bold;">$${itemTotal.toFixed(2)}</span>
         </div>
         ${modifiers.length > 0 ? `
           <div class="modifiers">
