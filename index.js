@@ -461,6 +461,9 @@ app.post("/api/print", async (req, res) => {
 
   res.status(202).json({ ok: true, tokens });
 
+  console.log('PRINTER RECEIVED ORDER:', JSON.stringify(order, null, 2));
+  console.log('FIRST ITEM MODIFIERS:', order?.items?.[0]?.selectedModifiers);
+
   (async () => {
     try {
       const html = generateReceiptHTML(order || {});
