@@ -234,7 +234,7 @@ function generateReceiptHTML(order = {}) {
       const name = item?.name || "Item";
       const quantity = item?.quantity || 1;
       const price = typeof item?.price === "number" ? item.price : 0;
-      const modifierTotal = typeof item?.modifierTotal === "number" ? item.modifierTotal : 0;
+      const modifierTotal = (typeof item?.modifierTotal === "number" && !isNaN(item.modifierTotal)) ? item.modifierTotal : 0;
       const itemTotal = (price + modifierTotal) * quantity;
       const special = item?.specialInstructions || "";
       const modifiers = Array.isArray(item?.selectedModifiers) ? item.selectedModifiers : [];
@@ -246,12 +246,16 @@ function generateReceiptHTML(order = {}) {
         </div>
         ${modifiers.length > 0 ? `
           <div class="modifiers">
-            ${modifiers.map(mod => `
+            ${modifiers.map(mod => {
+              const modPrice = (typeof mod?.modifierPrice === "number" && !isNaN(mod.modifierPrice)) ? mod.modifierPrice : 0;
+              const modName = mod?.modifierName || "Modifier";
+              return `
               <div class="modifier-item">
-                <span>+ ${mod.modifierName}</span>
-                ${mod.modifierPrice > 0 ? `<span>+$${mod.modifierPrice.toFixed(2)}</span>` : ''}
+                <span>+ ${modName}</span>
+                ${modPrice > 0 ? `<span>+$${modPrice.toFixed(2)}</span>` : ''}
               </div>
-            `).join('')}
+              `;
+            }).join('')}
           </div>
         ` : ""}
         ${special ? `<div class="specialInstructions">special instructions: ${special}</div>` : ""}
