@@ -361,7 +361,7 @@ async function renderHtmlToPngFast(html) {
       const buf = await page.screenshot({
         type: 'png',
         clip: { x: 0, y: 0, width: 576, height },
-        captureBeyondViewport: false,
+        captureBeyondViewport: true,
         optimizeForSpeed: true,
       });
       const tShot1 = Date.now();
