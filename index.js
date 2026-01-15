@@ -195,7 +195,7 @@ function generateReceiptHTML(order = {}) {
     <meta charset="utf-8" />
     <style>
       * { box-sizing: border-box; }
-      body { font-family: monospace; width: 576px; margin: 0; padding: 10px 10px 10px 0px; font-size: 42px; }
+      body { font-family: monospace; width: 576px; margin: 0; padding: 10px 10px 100px 0px; font-size: 42px; }
       .center { text-align: center; }
       .bold { font-weight: bold; font-size: 49px; }
       .line { border-top: 1px dashed #000; margin: 6px 0; }
@@ -383,7 +383,7 @@ function rasterForStar(raw) {
   const PNG_OPTS = { palette: true, colors: 2, compressionLevel: 2, effort: 1 };
   return sharp(raw, { failOn: "none" })
     .resize({ width: 565, kernel: "nearest" })
-    .extend({ bottom: 300, background: { r: 255, g: 255, b: 255 } })
+    .extend({ bottom: 500, background: { r: 255, g: 255, b: 255 } })
     .grayscale()
     .threshold(160)
     .png(PNG_OPTS)
