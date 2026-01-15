@@ -383,7 +383,7 @@ function rasterForStar(raw) {
   const PNG_OPTS = { palette: true, colors: 2, compressionLevel: 2, effort: 1 };
   return sharp(raw, { failOn: "none" })
     .resize({ width: 565, kernel: "nearest" })
-    .extend({ bottom: 700, background: { r: 255, g: 255, b: 255 } })
+    .extend({ bottom: 500, background: { r: 255, g: 255, b: 255 } })
     .grayscale()
     .threshold(160)
     .png(PNG_OPTS)
