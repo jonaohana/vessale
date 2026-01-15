@@ -195,15 +195,15 @@ function generateReceiptHTML(order = {}) {
     <meta charset="utf-8" />
     <style>
       * { box-sizing: border-box; }
-      body { font-family: monospace; width: 576px; margin: 0; padding: 10px 10px 10px 0px; font-size: 30px; }
+      body { font-family: monospace; width: 576px; margin: 0; padding: 10px 10px 10px 0px; font-size: 42px; }
       .center { text-align: center; }
-      .bold { font-weight: bold; font-size: 35px; }
+      .bold { font-weight: bold; font-size: 49px; }
       .line { border-top: 1px dashed #000; margin: 6px 0; }
-      .item { display: flex; justify-content: space-between; font-size: 27px; }
+      .item { display: flex; justify-content: space-between; font-size: 38px; }
       .logo { display: block; margin: 0 auto 15px auto; max-width: 200px; }
-      .subinfo { font-size: 24px; margin-top: 10px; margin-bottom: 10px; }
-      .specialInstructions { font-size: 22px; font-style: italic; margin-top: 8px; border: 1px solid #000; padding: 4px; }
-      .modifiers { font-size: 22px; margin-left: 20px; margin-top: 4px; color: #333; }
+      .subinfo { font-size: 34px; margin-top: 10px; margin-bottom: 10px; }
+      .specialInstructions { font-size: 31px; font-style: italic; margin-top: 8px; border: 1px solid #000; padding: 4px; }
+      .modifiers { font-size: 31px; margin-left: 20px; margin-top: 4px; color: #333; }
       .modifier-item { display: flex; justify-content: space-between; margin-top: 2px; }
     </style>
   </head>
