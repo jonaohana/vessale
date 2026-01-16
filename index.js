@@ -7,6 +7,7 @@ import fs from "fs";
 import sharp from "sharp";
 import { performance } from "perf_hooks"; // ← timing
 import cors from "cors";
+import { fetchPrinterConfigFromDynamoDB, FALLBACK_PRINTER_CONFIG } from "./dynamodb-config.js";
 
 // allow your local dev origins
 const ALLOWED_ORIGINS = [
@@ -27,22 +28,47 @@ const app = express();
 app.use(express.json({ limit: "256kb" }));
 app.set("trust proxy", true); // so req.ip works behind a proxy/ELB
 
-/** Map restaurants to printers (note: some serials repeat on purpose) */
-const PRINTER_CONFIG = [
-  { restaurantId: "local", serial: "2581021060600835" },
-  { restaurantId: "worldfamous-skyler1", serial: "2581018070600248" },
-  { restaurantId: "worldfamous-skyler2", serial: "2581019070600037" },
-  // { restaurantId: "worldfamous-printer1", serial: "2581018070600248" },
-  { restaurantId: "worldfamous-printer2", serial: "2581019070600037" },
-  { restaurantId: "worldfamous-downey-printer1", serial: "2581018080600059" },
-  { restaurantId: "worldfamous-downey-printer2", serial: "2581018070600306" },
-  { restaurantId: "worldfamous-bell-printer1", serial: "2581019090600209" },
-  { restaurantId: "worldfamous-bell-printer2", serial: "2581018080600564" },
-  { restaurantId: "worldfamous-market-printer", serial: "2581018070600273" },
-  { restaurantId: "arth-printer-1", serial: "2581019070600083" },
-  { restaurantId: "arth-printer-2", serial: "2581019090600186" },
-  { restaurantId: "arth-printer-3", serial: "2581019070600090" },
-];
+/** Map restaurants to printers - will be loaded from DynamoDB or fallback */
+let PRINTER_CONFIG = [...FALLBACK_PRINTER_CONFIG];
+
+// Function to reload printer config from DynamoDB
+async function reloadPrinterConfig() {
+  try {
+    console.log('Fetching printer config from DynamoDB...');
+    const dynamoConfig = await fetchPrinterConfigFromDynamoDB();
+    
+    if (dynamoConfig && dynamoConfig.length > 0) {
+      PRINTER_CONFIG = dynamoConfig;
+      console.log(`Loaded ${PRINTER_CONFIG.length} printer configs from DynamoDB`);
+      
+      // Rebuild the serial to restaurant mapping
+      rebuildSerialToRestaurantMapping();
+    } else {
+      console.log('No config from DynamoDB, using fallback config');
+    }
+  } catch (error) {
+    console.error('Error reloading printer config:', error);
+  }
+}
+
+// Function to rebuild the serial-to-restaurant mapping
+function rebuildSerialToRestaurantMapping() {
+  serialToRestaurantList.clear();
+  serialRR.clear();
+  
+  for (const { serial, restaurantId } of PRINTER_CONFIG) {
+    const s = String(serial).trim();
+    const arr = serialToRestaurantList.get(s) || [];
+    arr.push(restaurantId);
+    serialToRestaurantList.set(s, arr);
+  }
+  
+  console.log('Rebuilt serial-to-restaurant mapping:', 
+    Array.from(serialToRestaurantList.entries()).map(([serial, restaurants]) => 
+      `${serial} -> [${restaurants.join(', ')}]`
+    )
+  );
+}
 
 app.use(cors({
   origin: (origin, cb) => {
@@ -63,14 +89,11 @@ app.options(/.*/, cors());
 
 /** serial -> array of restaurantIds (preserve all, not last one) */
 const serialToRestaurantList = new Map();
-for (const { serial, restaurantId } of PRINTER_CONFIG) {
-  const s = String(serial).trim();
-  const arr = serialToRestaurantList.get(s) || [];
-  arr.push(restaurantId);
-  serialToRestaurantList.set(s, arr);
-}
 /** round-robin pointer per serial */
 const serialRR = new Map();
+
+// Initialize the serial-to-restaurant mapping (will be rebuilt when config loads)
+rebuildSerialToRestaurantMapping();
 
 // --------------------------
 // Print History Tracking
@@ -727,6 +750,20 @@ app.get("/api/printers/:serial/history", (req, res) => {
   });
 });
 
+/**
+ * POST /api/printers/reload-config
+ * Manually trigger a reload of printer configuration from DynamoDB
+ */
+app.post("/api/printers/reload-config", async (req, res) => {
+  try {
+    await reloadPrinterConfig();
+    res.json({ ok: true, message: 'Printer configuration reloaded successfully', count: PRINTER_CONFIG.length });
+  } catch (error) {
+    console.error('Error reloading config:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 // --------------------------
 // Startup & Shutdown (HTTP + HTTPS)
 // --------------------------
@@ -746,6 +783,16 @@ let httpsServer = null;
   try { await getBrowser(); console.log("Chromium warmed"); } 
   catch (e) { console.warn("Chromium warm-up failed:", e?.message || e); }
 })();
+
+// Load printer config from DynamoDB at boot
+(async () => {
+  await reloadPrinterConfig();
+})();
+
+// Reload config every 5 minutes to pick up changes
+setInterval(async () => {
+  await reloadPrinterConfig();
+}, 5 * 60 * 1000);
 
 function startHttpRedirect() {
   // Lightweight redirect server → always to HTTPS (preserves host + path)
