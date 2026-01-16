@@ -78,7 +78,7 @@ const serialRR = new Map();
 const MAX_HISTORY_ITEMS = 500; // Keep last 500 print jobs per serial
 const printHistory = new Map(); // serial -> PrintHistoryEntry[]
 
-function addToPrintHistory(serial, restaurantId, status, orderId = null) {
+function addToPrintHistory(serial, restaurantId, status, orderId = null, customerName = null, orderNumber = null) {
   const s = String(serial).trim();
   if (!printHistory.has(s)) printHistory.set(s, []);
   const history = printHistory.get(s);
@@ -88,6 +88,8 @@ function addToPrintHistory(serial, restaurantId, status, orderId = null) {
     restaurantId,
     status, // 'received', 'offered', 'sent', 'completed', 'failed'
     orderId,
+    customerName,
+    orderNumber,
     msAgo: 0,
   };
   
@@ -491,10 +493,14 @@ app.post("/api/print", async (req, res) => {
   const bad = restaurantIds.filter(r => !validIds.has(r));
   if (bad.length) return res.status(404).json({ ok: false, error: `Unknown restaurantId(s): ${bad.join(", ")}` });
 
+  // Extract customer info and order number from order data
+  const customerName = order?.customerDetails?.name || order?.customer?.name || 'Unknown';
+  const orderNumber = order?.orderNumber || order?.id || order?.orderId || null;
+
   const tokens = [];
   for (const rid of restaurantIds) {
     const id = makeId();
-    const job = { id, content: null, status: "queued", offeredAt: null, sentAt: null, restaurantId: rid };
+    const job = { id, content: null, status: "queued", offeredAt: null, sentAt: null, restaurantId: rid, customerName, orderNumber };
     queueFor(rid).push(job);
     jobIndex.set(id, { restaurantId: rid, job });
     tokens.push(id);
@@ -502,7 +508,7 @@ app.post("/api/print", async (req, res) => {
     // Track in history: find serial(s) for this restaurantId
     const config = PRINTER_CONFIG.filter(p => p.restaurantId === rid);
     for (const { serial } of config) {
-      addToPrintHistory(serial, rid, 'received', id);
+      addToPrintHistory(serial, rid, 'received', id, customerName, orderNumber);
     }
   }
 
@@ -561,7 +567,7 @@ app.post("/cloudprnt", (req, res) => {
   console.log("[offer]", { serial, rid: job.restaurantId, token: job.id });
   
   // Track offer in history
-  addToPrintHistory(serial, job.restaurantId, 'offered', job.id);
+  addToPrintHistory(serial, job.restaurantId, 'offered', job.id, job.customerName, job.orderNumber);
 
   res.json({
     jobReady: true,
@@ -593,7 +599,7 @@ app.get("/cloudprnt", (req, res) => {
   // Track sent in history - find serial from config
   const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
   if (config) {
-    addToPrintHistory(config.serial, ref.restaurantId, 'sent', job.id);
+    addToPrintHistory(config.serial, ref.restaurantId, 'sent', job.id, job.customerName, job.orderNumber);
   }
 
   console.log("[serve]", { token: job.id, rid: ref.restaurantId });
@@ -619,7 +625,7 @@ app.delete("/cloudprnt", (req, res) => {
     // Track completion in history
     const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
     if (config) {
-      addToPrintHistory(config.serial, ref.restaurantId, 'completed', ref.job.id);
+      addToPrintHistory(config.serial, ref.restaurantId, 'completed', ref.job.id, ref.job.customerName, ref.job.orderNumber);
     }
     
     removeJob(String(token));
@@ -629,7 +635,7 @@ app.delete("/cloudprnt", (req, res) => {
     // Track failure in history
     const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
     if (config) {
-      addToPrintHistory(config.serial, ref.restaurantId, 'failed', ref.job.id);
+      addToPrintHistory(config.serial, ref.restaurantId, 'failed', ref.job.id, ref.job.customerName, ref.job.orderNumber);
     }
     
     requeueToken(String(token));
