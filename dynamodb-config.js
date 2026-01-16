@@ -40,40 +40,30 @@ export async function fetchPrinterConfigFromDynamoDB() {
     const items = response.data.listRestaurantPrinters.items || [];
     
     // Build the PRINTER_CONFIG array format
-    const configMap = new Map();
+    // Each entry maps a printerId to a serial number
+    const printerConfig = [];
     
     items.forEach(item => {
       if (!item.printerConfig || !item.printerConfig.isActive) {
         return; // Skip inactive printers
       }
       
-      const restaurantId = item.restaurantId;
       const printerId = item.printerConfig.printerId;
       const serial = item.printerConfig.serial;
       
-      if (!restaurantId || !printerId || !serial) {
+      if (!printerId || !serial) {
         return; // Skip incomplete data
       }
       
-      if (!configMap.has(serial)) {
-        configMap.set(serial, {
-          serial,
+      // Add an entry for this printerId -> serial mapping
+      // Check if we already have this printerId to avoid duplicates
+      if (!printerConfig.some(p => p.restaurantId === printerId)) {
+        printerConfig.push({
           restaurantId: printerId,
-          restaurants: []
+          serial: serial
         });
       }
-      
-      // Add restaurant to this serial's list
-      if (!configMap.get(serial).restaurants.includes(restaurantId)) {
-        configMap.get(serial).restaurants.push(restaurantId);
-      }
     });
-    
-    // Convert to the PRINTER_CONFIG array format
-    const printerConfig = Array.from(configMap.values()).map(entry => ({
-      restaurantId: entry.restaurantId,
-      serial: entry.serial
-    }));
     
     console.log('Fetched printer config from DynamoDB:', printerConfig);
     return printerConfig;
