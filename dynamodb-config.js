@@ -2,8 +2,8 @@
 import https from 'https';
 
 // You'll need to set these environment variables on the printer server
-const API_ENDPOINT = process.env.AMPLIFY_API_ENDPOINT || 'https://yourapi.appsync-api.us-east-1.amazonaws.com/graphql';
-const API_KEY = process.env.AMPLIFY_API_KEY || '';
+const API_ENDPOINT = process.env.AMPLIFY_API_ENDPOINT || 'https://s3h225ug5rfxliczg4sjrrdgaq.appsync-api.us-east-2.amazonaws.com/graphql';
+const API_KEY = process.env.AMPLIFY_API_KEY || 'da2-7zkq35s6pfdmfb5xheu574fjdi';
 
 /**
  * Fetch printer configuration from DynamoDB via AppSync
