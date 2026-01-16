@@ -17,6 +17,7 @@ export async function fetchPrinterConfigFromDynamoDB() {
         items {
           id
           restaurantId
+          restaurantName
           printerConfigId
           printerConfig {
             id
