@@ -73,6 +73,40 @@ for (const { serial, restaurantId } of PRINTER_CONFIG) {
 const serialRR = new Map();
 
 // --------------------------
+// Print History Tracking
+// --------------------------
+const MAX_HISTORY_ITEMS = 500; // Keep last 500 print jobs per serial
+const printHistory = new Map(); // serial -> PrintHistoryEntry[]
+
+function addToPrintHistory(serial, restaurantId, status, orderId = null) {
+  const s = String(serial).trim();
+  if (!printHistory.has(s)) printHistory.set(s, []);
+  const history = printHistory.get(s);
+  
+  const entry = {
+    timestamp: new Date().toISOString(),
+    restaurantId,
+    status, // 'received', 'offered', 'sent', 'completed', 'failed'
+    orderId,
+    msAgo: 0,
+  };
+  
+  history.unshift(entry); // newest first
+  if (history.length > MAX_HISTORY_ITEMS) history.length = MAX_HISTORY_ITEMS;
+}
+
+function getPrintHistory(serial) {
+  const s = String(serial).trim();
+  const history = printHistory.get(s) || [];
+  const now = Date.now();
+  
+  return history.map(entry => ({
+    ...entry,
+    msAgo: now - new Date(entry.timestamp).getTime(),
+  }));
+}
+
+// --------------------------
 // In-memory Job Store
 // --------------------------
 function makeId() {
@@ -464,6 +498,12 @@ app.post("/api/print", async (req, res) => {
     queueFor(rid).push(job);
     jobIndex.set(id, { restaurantId: rid, job });
     tokens.push(id);
+    
+    // Track in history: find serial(s) for this restaurantId
+    const config = PRINTER_CONFIG.filter(p => p.restaurantId === rid);
+    for (const { serial } of config) {
+      addToPrintHistory(serial, rid, 'received', id);
+    }
   }
 
   res.status(202).json({ ok: true, tokens });
@@ -519,6 +559,9 @@ app.post("/cloudprnt", (req, res) => {
   job.status = "offered";
   job.offeredAt = Date.now();
   console.log("[offer]", { serial, rid: job.restaurantId, token: job.id });
+  
+  // Track offer in history
+  addToPrintHistory(serial, job.restaurantId, 'offered', job.id);
 
   res.json({
     jobReady: true,
@@ -546,6 +589,12 @@ app.get("/cloudprnt", (req, res) => {
   // Mark sent (printer has fetched data)
   job.status = "sent";
   job.sentAt = Date.now();
+  
+  // Track sent in history - find serial from config
+  const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
+  if (config) {
+    addToPrintHistory(config.serial, ref.restaurantId, 'sent', job.id);
+  }
 
   console.log("[serve]", { token: job.id, rid: ref.restaurantId });
   const buf = job.content;
@@ -566,9 +615,23 @@ app.delete("/cloudprnt", (req, res) => {
   if (codeStr === "OK" || codeStr.startsWith("2")) {
     ref.job.status = "done";
     console.log("[done]", { token: ref.job.id, rid: ref.restaurantId, code: codeStr });
+    
+    // Track completion in history
+    const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
+    if (config) {
+      addToPrintHistory(config.serial, ref.restaurantId, 'completed', ref.job.id);
+    }
+    
     removeJob(String(token));
   } else {
     console.warn("[requeue on delete]", { token: ref.job.id, code: codeStr });
+    
+    // Track failure in history
+    const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
+    if (config) {
+      addToPrintHistory(config.serial, ref.restaurantId, 'failed', ref.job.id);
+    }
+    
     requeueToken(String(token));
   }
   res.sendStatus(200);
@@ -638,6 +701,24 @@ app.get("/api/printers", (req, res) => {
 app.get("/debug/seen", (req, res) => {
   const all = Array.from(seenBySerial.values()).map(toPublicPresence);
   res.json({ windowMs: POLL_ONLINE_WINDOW_MS, printers: all });
+});
+
+/**
+ * GET /api/printers/:serial/history
+ * Returns print history for a specific printer serial number.
+ */
+app.get("/api/printers/:serial/history", (req, res) => {
+  const serial = String(req.params.serial).trim();
+  const history = getPrintHistory(serial);
+  const restaurants = serialToRestaurantList.get(serial) || [];
+  
+  res.json({
+    ok: true,
+    serial,
+    restaurants,
+    count: history.length,
+    history,
+  });
 });
 
 // --------------------------
