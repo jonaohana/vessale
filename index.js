@@ -732,6 +732,15 @@ app.get("/debug/seen", (req, res) => {
   res.json({ windowMs: POLL_ONLINE_WINDOW_MS, printers: all });
 });
 
+// Debug endpoint to see loaded printer config
+app.get("/api/printers/debug/config", (req, res) => {
+  res.json({ 
+    ok: true, 
+    count: PRINTER_CONFIG.length,
+    config: PRINTER_CONFIG 
+  });
+});
+
 /**
  * GET /api/printers/:serial/history
  * Returns print history for a specific printer serial number.
