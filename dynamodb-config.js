@@ -1,15 +1,72 @@
 // DynamoDB helper for printer configuration
 import https from 'https';
 
-// You'll need to set these environment variables on the printer server
-const API_ENDPOINT = process.env.AMPLIFY_API_ENDPOINT || 'https://s3h225ug5rfxliczg4sjrrdgaq.appsync-api.us-east-2.amazonaws.com/graphql';
-const API_KEY = process.env.AMPLIFY_API_KEY || 'da2-7zkq35s6pfdmfb5xheu574fjdi';
+// Environment configurations
+const ENVIRONMENTS = {
+  local: {
+    endpoint: 'https://s3h225ug5rfxliczg4sjrrdgaq.appsync-api.us-east-2.amazonaws.com/graphql',
+    apiKey: 'da2-7zkq35s6pfdmfb5xheu574fjdi'
+  },
+  develop: {
+    endpoint: 'https://k2aa7szpyvfqznxlw3u4v35c2m.appsync-api.us-east-2.amazonaws.com/graphql',
+    apiKey: 'da2-44g36v6iunecbki2s3jhxvoeyuh'
+  },
+  production: {
+    endpoint: 'https://xcvbmegvdzcm3grnd44njlvwka.appsync-api.us-east-2.amazonaws.com/graphql',
+    apiKey: 'da2-slym3gpah5hqncy5oh5bof44c4'
+  }
+};
+
+/**
+ * Determine environment from the origin/referer header
+ * @param {string} origin - The origin or referer from the request
+ * @returns {string} - 'local', 'develop', or 'production'
+ */
+export function getEnvironmentFromOrigin(origin) {
+  if (!origin) {
+    console.log('No origin provided, defaulting to production');
+    return 'production';
+  }
+
+  const originLower = origin.toLowerCase();
+  
+  if (originLower.includes('localhost') || originLower.includes('127.0.0.1')) {
+    console.log('Detected local environment from origin:', origin);
+    return 'local';
+  }
+  
+  if (originLower.includes('develop.d2g0w15slq5y17.amplifyapp.com')) {
+    console.log('Detected develop environment from origin:', origin);
+    return 'develop';
+  }
+  
+  if (originLower.includes('orderthevessale.com') || 
+      originLower.includes('main.d2g0w15slq5y17.amplifyapp.com')) {
+    console.log('Detected production environment from origin:', origin);
+    return 'production';
+  }
+  
+  // Default to production for unknown origins
+  console.log('Unknown origin, defaulting to production:', origin);
+  return 'production';
+}
 
 /**
  * Fetch printer configuration from DynamoDB via AppSync
  * Returns a map of restaurantId -> array of printer IDs
+ * @param {string} environment - 'local', 'develop', or 'production'
  */
-export async function fetchPrinterConfigFromDynamoDB() {
+export async function fetchPrinterConfigFromDynamoDB(environment = 'production') {
+  const env = ENVIRONMENTS[environment];
+  
+  if (!env) {
+    console.error('Invalid environment:', environment);
+    return null;
+  }
+  
+  console.log(`Fetching printer config from ${environment} environment:`, env.endpoint);
+  console.log(`Fetching printer config from ${environment} environment:`, env.endpoint);
+  
   // GraphQL query to get all restaurant-printer mappings and printer configs
   const query = `
     query GetPrinterConfig {
@@ -31,7 +88,7 @@ export async function fetchPrinterConfigFromDynamoDB() {
   `;
 
   try {
-    const response = await makeGraphQLRequest(query);
+    const response = await makeGraphQLRequest(query, {}, env.endpoint, env.apiKey);
     
     if (!response.data || !response.data.listRestaurantPrinters) {
       console.error('Invalid response from AppSync:', response);
@@ -76,15 +133,19 @@ export async function fetchPrinterConfigFromDynamoDB() {
 
 /**
  * Make a GraphQL request to AppSync
+ * @param {string} query - GraphQL query
+ * @param {object} variables - GraphQL variables
+ * @param {string} endpoint - AppSync endpoint URL
+ * @param {string} apiKey - AppSync API key
  */
-function makeGraphQLRequest(query, variables = {}) {
+function makeGraphQLRequest(query, variables = {}, endpoint, apiKey) {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify({
       query,
       variables
     });
 
-    const url = new URL(API_ENDPOINT);
+    const url = new URL(endpoint);
     
     const options = {
       hostname: url.hostname,
@@ -93,7 +154,7 @@ function makeGraphQLRequest(query, variables = {}) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': data.length,
-        'x-api-key': API_KEY
+        'x-api-key': apiKey
       }
     };
 

@@ -7,7 +7,7 @@ import fs from "fs";
 import sharp from "sharp";
 import { performance } from "perf_hooks"; // ← timing
 import cors from "cors";
-import { fetchPrinterConfigFromDynamoDB, FALLBACK_PRINTER_CONFIG } from "./dynamodb-config.js";
+import { fetchPrinterConfigFromDynamoDB, FALLBACK_PRINTER_CONFIG, getEnvironmentFromOrigin } from "./dynamodb-config.js";
 
 // allow your local dev origins
 const ALLOWED_ORIGINS = [
@@ -29,25 +29,35 @@ app.use(express.json({ limit: "256kb" }));
 app.set("trust proxy", true); // so req.ip works behind a proxy/ELB
 
 /** Map restaurants to printers - will be loaded from DynamoDB or fallback */
-let PRINTER_CONFIG = [...FALLBACK_PRINTER_CONFIG];
+/** Store configs per environment */
+const PRINTER_CONFIGS = {
+  local: [...FALLBACK_PRINTER_CONFIG],
+  develop: [...FALLBACK_PRINTER_CONFIG],
+  production: [...FALLBACK_PRINTER_CONFIG]
+};
 
-// Function to reload printer config from DynamoDB
-async function reloadPrinterConfig() {
+let PRINTER_CONFIG = [...FALLBACK_PRINTER_CONFIG]; // Default/fallback
+
+// Function to reload printer config from DynamoDB for a specific environment
+async function reloadPrinterConfig(environment = 'production') {
   try {
-    console.log('Fetching printer config from DynamoDB...');
-    const dynamoConfig = await fetchPrinterConfigFromDynamoDB();
+    console.log(`Fetching printer config from DynamoDB for ${environment} environment...`);
+    const dynamoConfig = await fetchPrinterConfigFromDynamoDB(environment);
     
     if (dynamoConfig && dynamoConfig.length > 0) {
-      PRINTER_CONFIG = dynamoConfig;
-      console.log(`Loaded ${PRINTER_CONFIG.length} printer configs from DynamoDB`);
+      PRINTER_CONFIGS[environment] = dynamoConfig;
+      console.log(`Loaded ${dynamoConfig.length} printer configs from DynamoDB for ${environment}`);
       
-      // Rebuild the serial to restaurant mapping
-      rebuildSerialToRestaurantMapping();
+      // Update default config to production
+      if (environment === 'production') {
+        PRINTER_CONFIG = dynamoConfig;
+        rebuildSerialToRestaurantMapping();
+      }
     } else {
-      console.log('No config from DynamoDB, using fallback config');
+      console.log(`No config from DynamoDB for ${environment}, using fallback config`);
     }
   } catch (error) {
-    console.error('Error reloading printer config:', error);
+    console.error(`Error reloading printer config for ${environment}:`, error);
   }
 }
 
@@ -509,12 +519,23 @@ app.post("/api/print", async (req, res) => {
   const { restaurantId, order } = req.body || {};
   if (!restaurantId) return res.status(400).json({ ok: false, error: "Missing restaurantId" });
 
+  // Determine environment from origin/referer header
+  const origin = req.headers.origin || req.headers.referer || '';
+  const environment = getEnvironmentFromOrigin(origin);
+  const printerConfig = PRINTER_CONFIGS[environment] || PRINTER_CONFIG;
+  
+  console.log(`Print request from ${environment} environment (origin: ${origin})`);
+
   const restaurantIds = Array.isArray(restaurantId) ? restaurantId : [restaurantId];
 
-  // validate all ids first
-  const validIds = new Set(PRINTER_CONFIG.map(p => p.restaurantId));
+  // validate all ids first using environment-specific config
+  const validIds = new Set(printerConfig.map(p => p.restaurantId));
   const bad = restaurantIds.filter(r => !validIds.has(r));
-  if (bad.length) return res.status(404).json({ ok: false, error: `Unknown restaurantId(s): ${bad.join(", ")}` });
+  if (bad.length) {
+    console.log(`Unknown printer IDs in ${environment}:`, bad);
+    console.log(`Valid IDs in ${environment}:`, Array.from(validIds));
+    return res.status(404).json({ ok: false, error: `Unknown restaurantId(s): ${bad.join(", ")}` });
+  }
 
   // Extract customer info and order number from order data
   const customerName = order?.customerDetails?.name || order?.customer?.name || 'Unknown';
@@ -761,12 +782,26 @@ app.get("/api/printers/:serial/history", (req, res) => {
 
 /**
  * POST /api/printers/reload-config
- * Manually trigger a reload of printer configuration from DynamoDB
+ * Manually trigger a reload of printer configuration from DynamoDB for all environments
  */
 app.post("/api/printers/reload-config", async (req, res) => {
   try {
-    await reloadPrinterConfig();
-    res.json({ ok: true, message: 'Printer configuration reloaded successfully', count: PRINTER_CONFIG.length });
+    console.log('Manually reloading printer configs for all environments...');
+    await Promise.all([
+      reloadPrinterConfig('local'),
+      reloadPrinterConfig('develop'),
+      reloadPrinterConfig('production')
+    ]);
+    
+    res.json({ 
+      ok: true, 
+      message: 'Printer configuration reloaded successfully for all environments',
+      counts: {
+        local: PRINTER_CONFIGS.local.length,
+        develop: PRINTER_CONFIGS.develop.length,
+        production: PRINTER_CONFIGS.production.length
+      }
+    });
   } catch (error) {
     console.error('Error reloading config:', error);
     res.status(500).json({ ok: false, error: error.message });
@@ -793,14 +828,25 @@ let httpsServer = null;
   catch (e) { console.warn("Chromium warm-up failed:", e?.message || e); }
 })();
 
-// Load printer config from DynamoDB at boot
+// Load printer configs from DynamoDB for all environments at boot
 (async () => {
-  await reloadPrinterConfig();
+  console.log('Loading printer configs for all environments at startup...');
+  await Promise.all([
+    reloadPrinterConfig('local'),
+    reloadPrinterConfig('develop'),
+    reloadPrinterConfig('production')
+  ]);
+  console.log('All environment configs loaded');
 })();
 
-// Reload config every 5 minutes to pick up changes
+// Reload configs for all environments every 5 minutes to pick up changes
 setInterval(async () => {
-  await reloadPrinterConfig();
+  console.log('Reloading printer configs for all environments...');
+  await Promise.all([
+    reloadPrinterConfig('local'),
+    reloadPrinterConfig('develop'),
+    reloadPrinterConfig('production')
+  ]);
 }, 5 * 60 * 1000);
 
 function startHttpRedirect() {
