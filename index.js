@@ -8,6 +8,7 @@ import sharp from "sharp";
 import { performance } from "perf_hooks"; // ← timing
 import cors from "cors";
 import { fetchPrinterConfigFromDynamoDB, FALLBACK_PRINTER_CONFIG, getEnvironmentFromOrigin } from "./dynamodb-config.js";
+import { logSuccess, logError } from "./print-logger.js";
 
 // allow your local dev origins
 const ALLOWED_ORIGINS = [
@@ -516,9 +517,9 @@ setInterval(() => {
 
 // Create jobs; render async
 app.post("/api/print", async (req, res) => {
+  const startTime = performance.now();
   const { restaurantId, order } = req.body || {};
-  if (!restaurantId) return res.status(400).json({ ok: false, error: "Missing restaurantId" });
-
+  
   // Determine environment from X-Environment header (for test prints) or origin/referer header
   const envHeader = req.headers['x-environment'];
   const origin = req.headers.origin || req.headers.referer || '';
@@ -526,6 +527,50 @@ app.post("/api/print", async (req, res) => {
   const printerConfig = PRINTER_CONFIGS[environment] || PRINTER_CONFIG;
   
   console.log(`Print request from ${environment} environment (origin: ${origin})`);
+
+  // Extract customer info early for logging
+  const customerName = order?.customerDetails?.name || order?.customer?.name || 'Unknown';
+  const orderNumber = order?.orderNumber || order?.id || order?.orderId || null;
+  const orderId = order?.orderId || order?.id || `order-${Date.now()}`;
+  const firstRestaurantId = Array.isArray(restaurantId) ? restaurantId[0] : restaurantId;
+
+  // LOG: Order received
+  await logSuccess({
+    orderId: orderId,
+    restaurantId: firstRestaurantId || 'unknown',
+    stage: 'ORDER_RECEIVED',
+    message: `Order received from ${origin || 'unknown source'}`,
+    customerName: customerName,
+    orderNumber: orderNumber,
+    orderData: {
+      itemCount: order?.items?.length || 0,
+      total: order?.total,
+      isDelivery: order?.isDelivery || false,
+    },
+    metadata: {
+      origin: origin,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      environment: environment,
+    },
+    processingTimeMs: Math.round(performance.now() - startTime),
+  }, environment);
+
+  if (!restaurantId) {
+    // LOG: Validation failed - missing restaurantId
+    await logError({
+      orderId: orderId,
+      restaurantId: 'unknown',
+      stage: 'ORDER_VALIDATION',
+      message: 'Missing restaurantId',
+      error: new Error('Missing required field: restaurantId'),
+      customerName: customerName,
+      orderNumber: orderNumber,
+      processingTimeMs: Math.round(performance.now() - startTime),
+    }, environment);
+    
+    return res.status(400).json({ ok: false, error: "Missing restaurantId" });
+  }
 
   const restaurantIds = Array.isArray(restaurantId) ? restaurantId : [restaurantId];
 
@@ -535,12 +580,61 @@ app.post("/api/print", async (req, res) => {
   if (bad.length) {
     console.log(`Unknown printer IDs in ${environment}:`, bad);
     console.log(`Valid IDs in ${environment}:`, Array.from(validIds));
+    
+    // LOG: Printer lookup failed
+    await logError({
+      orderId: orderId,
+      restaurantId: firstRestaurantId,
+      stage: 'PRINTER_LOOKUP',
+      message: `No printer configured for restaurant(s): ${bad.join(', ')}`,
+      error: new Error('Printer not found'),
+      customerName: customerName,
+      orderNumber: orderNumber,
+      metadata: {
+        searchedRestaurants: restaurantIds,
+        invalidRestaurants: bad,
+        availablePrinters: Array.from(validIds),
+        environment: environment,
+      },
+      processingTimeMs: Math.round(performance.now() - startTime),
+    }, environment);
+    
     return res.status(404).json({ ok: false, error: `Unknown restaurantId(s): ${bad.join(", ")}` });
   }
 
-  // Extract customer info and order number from order data
-  const customerName = order?.customerDetails?.name || order?.customer?.name || 'Unknown';
-  const orderNumber = order?.orderNumber || order?.id || order?.orderId || null;
+  // LOG: Validation passed
+  await logSuccess({
+    orderId: orderId,
+    restaurantId: firstRestaurantId,
+    stage: 'ORDER_VALIDATION',
+    message: 'Order validation passed',
+    customerName: customerName,
+    orderNumber: orderNumber,
+    processingTimeMs: Math.round(performance.now() - startTime),
+  }, environment);
+
+  // Find printers for these restaurants
+  const matchingPrinters = [];
+  for (const rid of restaurantIds) {
+    const configs = printerConfig.filter(p => p.restaurantId === rid);
+    matchingPrinters.push(...configs.map(c => c.serial));
+  }
+
+  // LOG: Printers found
+  await logSuccess({
+    orderId: orderId,
+    restaurantId: firstRestaurantId,
+    printerSerial: matchingPrinters[0] || null,
+    stage: 'PRINTER_LOOKUP',
+    message: `Found ${matchingPrinters.length} printer(s): ${matchingPrinters.join(', ')}`,
+    customerName: customerName,
+    orderNumber: orderNumber,
+    metadata: {
+      allPrinters: matchingPrinters,
+      restaurants: restaurantIds,
+    },
+    processingTimeMs: Math.round(performance.now() - startTime),
+  }, environment);
 
   const tokens = [];
   for (const rid of restaurantIds) {
@@ -556,6 +650,22 @@ app.post("/api/print", async (req, res) => {
       addToPrintHistory(serial, rid, 'received', id, customerName, orderNumber);
     }
   }
+
+  // LOG: Job created
+  await logSuccess({
+    orderId: orderId,
+    restaurantId: firstRestaurantId,
+    printerSerial: matchingPrinters[0] || null,
+    stage: 'JOB_CREATION',
+    message: `Print job(s) created: ${tokens.join(', ')}`,
+    customerName: customerName,
+    orderNumber: orderNumber,
+    metadata: {
+      jobIds: tokens,
+      jobCount: tokens.length,
+    },
+    processingTimeMs: Math.round(performance.now() - startTime),
+  }, environment);
 
   res.status(202).json({ ok: true, tokens });
 
@@ -574,6 +684,20 @@ app.post("/api/print", async (req, res) => {
       }
     } catch (e) {
       console.error("background render failed", e);
+      
+      // LOG: Render failed
+      await logError({
+        orderId: orderId,
+        restaurantId: firstRestaurantId,
+        printerSerial: matchingPrinters[0] || null,
+        stage: 'JOB_CREATION',
+        message: `Failed to render receipt: ${e.message}`,
+        error: e,
+        customerName: customerName,
+        orderNumber: orderNumber,
+        processingTimeMs: Math.round(performance.now() - startTime),
+      }, environment);
+      
       for (const t of tokens) {
         const ref = jobIndex.get(t);
         if (ref?.job) ref.job.status = "failed";
@@ -613,6 +737,22 @@ app.post("/cloudprnt", (req, res) => {
   
   // Track offer in history
   addToPrintHistory(serial, job.restaurantId, 'offered', job.id, job.customerName, job.orderNumber);
+
+  // LOG: Printer accepted job
+  await logSuccess({
+    orderId: job.id,
+    restaurantId: job.restaurantId,
+    printerSerial: serial,
+    stage: 'PRINTER_POLLING',
+    message: `Printer ${serial} accepted job ${job.id}`,
+    customerName: job.customerName,
+    orderNumber: job.orderNumber,
+    printerStatus: 'online',
+    metadata: {
+      jobId: job.id,
+      printerIp: req.ip,
+    },
+  }, getEnvironmentFromOrigin(req.headers.origin || req.headers.referer || ''));
 
   res.json({
     jobReady: true,
@@ -655,13 +795,15 @@ app.get("/cloudprnt", (req, res) => {
 });
 
 // Printer confirms -> done or requeue
-app.delete("/cloudprnt", (req, res) => {
+app.delete("/cloudprnt", async (req, res) => {
   const { token, code } = req.query;
   if (!token) return res.status(400).send("Missing token");
   const codeStr = String(code || "").toUpperCase();
 
   const ref = jobIndex.get(String(token));
   if (!ref) { console.warn("[delete-missing]", { token }); return res.sendStatus(200); }
+
+  const environment = getEnvironmentFromOrigin(req.headers.origin || req.headers.referer || '');
 
   if (codeStr === "OK" || codeStr.startsWith("2")) {
     ref.job.status = "done";
@@ -671,6 +813,23 @@ app.delete("/cloudprnt", (req, res) => {
     const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
     if (config) {
       addToPrintHistory(config.serial, ref.restaurantId, 'completed', ref.job.id, ref.job.customerName, ref.job.orderNumber);
+      
+      // LOG: Print completed successfully
+      await logSuccess({
+        orderId: ref.job.id,
+        restaurantId: ref.restaurantId,
+        printerSerial: config.serial,
+        stage: 'PRINT_COMPLETE',
+        message: `Print completed successfully on ${config.serial}`,
+        customerName: ref.job.customerName,
+        orderNumber: ref.job.orderNumber,
+        printerStatus: 'online',
+        processingTimeMs: ref.job.offeredAt ? Date.now() - ref.job.offeredAt : 0,
+        metadata: {
+          jobId: ref.job.id,
+          statusCode: codeStr,
+        },
+      }, environment);
     }
     
     removeJob(String(token));
@@ -681,6 +840,22 @@ app.delete("/cloudprnt", (req, res) => {
     const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
     if (config) {
       addToPrintHistory(config.serial, ref.restaurantId, 'failed', ref.job.id, ref.job.customerName, ref.job.orderNumber);
+      
+      // LOG: Print failed
+      await logError({
+        orderId: ref.job.id,
+        restaurantId: ref.restaurantId,
+        printerSerial: config.serial,
+        stage: 'PRINT_COMPLETE',
+        message: `Print failed with code: ${codeStr}`,
+        error: new Error(`Printer returned error code: ${codeStr}`),
+        customerName: ref.job.customerName,
+        orderNumber: ref.job.orderNumber,
+        metadata: {
+          jobId: ref.job.id,
+          statusCode: codeStr,
+        },
+      }, environment);
     }
     
     requeueToken(String(token));
