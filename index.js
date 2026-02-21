@@ -553,7 +553,7 @@ setInterval(() => {
         
         // LOG: Job timeout in sent state
         logError({
-          orderId: j.id,
+          orderId: j.orderId || j.id, // Use original order ID if available
           restaurantId: rid,
           stage: 'PRINT_COMPLETE',
           message: `⏱ Print timeout: No confirmation after ${Math.round((now - j.sentAt) / 1000)}s (printer may have jammed or errored)`,
@@ -659,7 +659,17 @@ app.post("/api/print", async (req, res) => {
   const tokens = [];
   for (const rid of restaurantIds) {
     const id = makeId();
-    const job = { id, content: null, status: "queued", offeredAt: null, sentAt: null, restaurantId: rid, customerName, orderNumber };
+    const job = { 
+      id, 
+      orderId: orderId, // Store the original order ID for logging
+      content: null, 
+      status: "queued", 
+      offeredAt: null, 
+      sentAt: null, 
+      restaurantId: rid, 
+      customerName, 
+      orderNumber 
+    };
     queueFor(rid).push(job);
     jobIndex.set(id, { restaurantId: rid, job });
     tokens.push(id);
@@ -836,7 +846,7 @@ app.delete("/cloudprnt", async (req, res) => {
         
         // LOG: Print completed successfully (non-blocking)
         logSuccess({
-          orderId: ref.job.id,
+          orderId: ref.job.orderId || ref.job.id, // Use original order ID if available
           restaurantId: ref.restaurantId,
           printerSerial: config.serial,
           stage: 'PRINT_COMPLETE',
