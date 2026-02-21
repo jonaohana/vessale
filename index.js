@@ -738,8 +738,8 @@ app.post("/cloudprnt", (req, res) => {
   // Track offer in history
   addToPrintHistory(serial, job.restaurantId, 'offered', job.id, job.customerName, job.orderNumber);
 
-  // LOG: Printer accepted job
-  await logSuccess({
+  // LOG: Printer accepted job (non-blocking)
+  logSuccess({
     orderId: job.id,
     restaurantId: job.restaurantId,
     printerSerial: serial,
@@ -752,7 +752,7 @@ app.post("/cloudprnt", (req, res) => {
       jobId: job.id,
       printerIp: req.ip,
     },
-  }, getEnvironmentFromOrigin(req.headers.origin || req.headers.referer || ''));
+  }, getEnvironmentFromOrigin(req.headers.origin || req.headers.referer || '')).catch(err => console.error('[log-error]', err));
 
   res.json({
     jobReady: true,
@@ -796,71 +796,76 @@ app.get("/cloudprnt", (req, res) => {
 
 // Printer confirms -> done or requeue
 app.delete("/cloudprnt", async (req, res) => {
-  const { token, code } = req.query;
-  if (!token) return res.status(400).send("Missing token");
-  const codeStr = String(code || "").toUpperCase();
+  try {
+    const { token, code } = req.query;
+    if (!token) return res.status(400).send("Missing token");
+    const codeStr = String(code || "").toUpperCase();
 
-  const ref = jobIndex.get(String(token));
-  if (!ref) { console.warn("[delete-missing]", { token }); return res.sendStatus(200); }
+    const ref = jobIndex.get(String(token));
+    if (!ref) { console.warn("[delete-missing]", { token }); return res.sendStatus(200); }
 
-  const environment = getEnvironmentFromOrigin(req.headers.origin || req.headers.referer || '');
+    const environment = getEnvironmentFromOrigin(req.headers.origin || req.headers.referer || '');
 
-  if (codeStr === "OK" || codeStr.startsWith("2")) {
-    ref.job.status = "done";
-    console.log("[done]", { token: ref.job.id, rid: ref.restaurantId, code: codeStr });
-    
-    // Track completion in history
-    const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
-    if (config) {
-      addToPrintHistory(config.serial, ref.restaurantId, 'completed', ref.job.id, ref.job.customerName, ref.job.orderNumber);
+    if (codeStr === "OK" || codeStr.startsWith("2")) {
+      ref.job.status = "done";
+      console.log("[done]", { token: ref.job.id, rid: ref.restaurantId, code: codeStr });
       
-      // LOG: Print completed successfully
-      await logSuccess({
-        orderId: ref.job.id,
-        restaurantId: ref.restaurantId,
-        printerSerial: config.serial,
-        stage: 'PRINT_COMPLETE',
-        message: `Print completed successfully on ${config.serial}`,
-        customerName: ref.job.customerName,
-        orderNumber: ref.job.orderNumber,
-        printerStatus: 'online',
-        processingTimeMs: ref.job.offeredAt ? Date.now() - ref.job.offeredAt : 0,
-        metadata: {
-          jobId: ref.job.id,
-          statusCode: codeStr,
-        },
-      }, environment);
-    }
-    
-    removeJob(String(token));
-  } else {
-    console.warn("[requeue on delete]", { token: ref.job.id, code: codeStr });
-    
-    // Track failure in history
-    const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
-    if (config) {
-      addToPrintHistory(config.serial, ref.restaurantId, 'failed', ref.job.id, ref.job.customerName, ref.job.orderNumber);
+      // Track completion in history
+      const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
+      if (config) {
+        addToPrintHistory(config.serial, ref.restaurantId, 'completed', ref.job.id, ref.job.customerName, ref.job.orderNumber);
+        
+        // LOG: Print completed successfully (non-blocking)
+        logSuccess({
+          orderId: ref.job.id,
+          restaurantId: ref.restaurantId,
+          printerSerial: config.serial,
+          stage: 'PRINT_COMPLETE',
+          message: `Print completed successfully on ${config.serial}`,
+          customerName: ref.job.customerName,
+          orderNumber: ref.job.orderNumber,
+          printerStatus: 'online',
+          processingTimeMs: ref.job.offeredAt ? Date.now() - ref.job.offeredAt : 0,
+          metadata: {
+            jobId: ref.job.id,
+            statusCode: codeStr,
+          },
+        }, environment).catch(err => console.error('[log-error]', err));
+      }
       
-      // LOG: Print failed
-      await logError({
-        orderId: ref.job.id,
-        restaurantId: ref.restaurantId,
-        printerSerial: config.serial,
-        stage: 'PRINT_COMPLETE',
-        message: `Print failed with code: ${codeStr}`,
-        error: new Error(`Printer returned error code: ${codeStr}`),
-        customerName: ref.job.customerName,
-        orderNumber: ref.job.orderNumber,
-        metadata: {
-          jobId: ref.job.id,
-          statusCode: codeStr,
-        },
-      }, environment);
+      removeJob(String(token));
+    } else {
+      console.warn("[requeue on delete]", { token: ref.job.id, code: codeStr });
+      
+      // Track failure in history
+      const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
+      if (config) {
+        addToPrintHistory(config.serial, ref.restaurantId, 'failed', ref.job.id, ref.job.customerName, ref.job.orderNumber);
+        
+        // LOG: Print failed (non-blocking)
+        logError({
+          orderId: ref.job.id,
+          restaurantId: ref.restaurantId,
+          printerSerial: config.serial,
+          stage: 'PRINT_COMPLETE',
+          message: `Print failed with code: ${codeStr}`,
+          error: new Error(`Printer returned error code: ${codeStr}`),
+          customerName: ref.job.customerName,
+          orderNumber: ref.job.orderNumber,
+          metadata: {
+            jobId: ref.job.id,
+            statusCode: codeStr,
+          },
+        }, environment).catch(err => console.error('[log-error]', err));
+      }
+      
+      requeueToken(String(token));
     }
-    
-    requeueToken(String(token));
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('[delete-error]', error);
+    res.sendStatus(500);
   }
-  res.sendStatus(200);
 });
 
 // Debug helpers
