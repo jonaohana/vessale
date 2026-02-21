@@ -906,6 +906,14 @@ app.delete("/cloudprnt", async (req, res) => {
       ref.job.status = "done";
       console.log("[done]", { token: ref.job.id, rid: ref.restaurantId, code: codeStr });
       
+      // Debug: Check orderId
+      console.log("[print-complete-log]", { 
+        jobId: ref.job.id, 
+        orderId: ref.job.orderId,
+        customerName: ref.job.customerName,
+        orderNumber: ref.job.orderNumber
+      });
+      
       // Track completion in history
       const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
       if (config) {
