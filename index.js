@@ -599,7 +599,21 @@ app.post("/api/print", async (req, res) => {
   const orderId = order?.orderId || order?.id || `order-${Date.now()}`;
   const firstRestaurantId = Array.isArray(restaurantId) ? restaurantId[0] : restaurantId;
 
-  // Only log order receipt - don't log every validation step
+  // LOG: Order received
+  await logSuccess({
+    orderId: orderId,
+    restaurantId: firstRestaurantId || 'unknown',
+    stage: 'ORDER_RECEIVED',
+    message: `Order received from ${origin || 'unknown source'}`,
+    customerName: customerName,
+    orderNumber: orderNumber,
+    orderData: {
+      itemCount: order?.items?.length || 0,
+      total: order?.total,
+    },
+    processingTimeMs: Math.round(performance.now() - startTime),
+  }, environment);
+
   console.log('Order received:', { orderId, customerName, orderNumber, restaurantId });
 
   if (!restaurantId) {
@@ -617,6 +631,17 @@ app.post("/api/print", async (req, res) => {
     
     return res.status(400).json({ ok: false, error: "Missing restaurantId" });
   }
+
+  // LOG: Order validation passed
+  await logSuccess({
+    orderId: orderId,
+    restaurantId: firstRestaurantId,
+    stage: 'ORDER_VALIDATION',
+    message: 'Order validation passed',
+    customerName: customerName,
+    orderNumber: orderNumber,
+    processingTimeMs: Math.round(performance.now() - startTime),
+  }, environment);
 
   const restaurantIds = Array.isArray(restaurantId) ? restaurantId : [restaurantId];
 
@@ -654,6 +679,22 @@ app.post("/api/print", async (req, res) => {
     const configs = printerConfig.filter(p => p.restaurantId === rid);
     matchingPrinters.push(...configs.map(c => c.serial));
   }
+
+  // LOG: Printer lookup successful
+  await logSuccess({
+    orderId: orderId,
+    restaurantId: firstRestaurantId,
+    printerSerial: matchingPrinters[0] || null,
+    stage: 'PRINTER_LOOKUP',
+    message: `Found ${matchingPrinters.length} printer(s): ${matchingPrinters.join(', ')}`,
+    customerName: customerName,
+    orderNumber: orderNumber,
+    metadata: {
+      printerCount: matchingPrinters.length,
+      printers: matchingPrinters,
+    },
+    processingTimeMs: Math.round(performance.now() - startTime),
+  }, environment);
 
   // Create print jobs (no logging here - wait for completion)
   const tokens = [];
