@@ -37,16 +37,36 @@ const PRINTER_CONFIGS = {
   production: [...FALLBACK_PRINTER_CONFIG]
 };
 
+// Track last reload time per environment (for caching)
+const CONFIG_LAST_RELOAD = {
+  local: 0,
+  develop: 0,
+  production: 0
+};
+
+const CONFIG_CACHE_TTL_MS = 30_000; // Cache config for 30 seconds
+
 let PRINTER_CONFIG = [...FALLBACK_PRINTER_CONFIG]; // Default/fallback
 
 // Function to reload printer config from DynamoDB for a specific environment
-async function reloadPrinterConfig(environment = 'production') {
+async function reloadPrinterConfig(environment = 'production', forceReload = false) {
   try {
+    // Check if we need to reload (cache expired or forced)
+    const now = Date.now();
+    const lastReload = CONFIG_LAST_RELOAD[environment] || 0;
+    const cacheAge = now - lastReload;
+    
+    if (!forceReload && cacheAge < CONFIG_CACHE_TTL_MS) {
+      console.log(`Using cached config for ${environment} (age: ${Math.round(cacheAge/1000)}s)`);
+      return;
+    }
+    
     console.log(`Fetching printer config from DynamoDB for ${environment} environment...`);
     const dynamoConfig = await fetchPrinterConfigFromDynamoDB(environment);
     
     if (dynamoConfig && dynamoConfig.length > 0) {
       PRINTER_CONFIGS[environment] = dynamoConfig;
+      CONFIG_LAST_RELOAD[environment] = Date.now(); // Update cache timestamp
       console.log(`Loaded ${dynamoConfig.length} printer configs from DynamoDB for ${environment}`);
       
       // Update default config to production
@@ -558,9 +578,12 @@ app.post("/api/print", async (req, res) => {
   const envHeader = req.headers['x-environment'];
   const origin = req.headers.origin || req.headers.referer || '';
   const environment = envHeader || getEnvironmentFromOrigin(origin);
-  const printerConfig = PRINTER_CONFIGS[environment] || PRINTER_CONFIG;
   
   console.log(`Print request from ${environment} environment (origin: ${origin})`);
+  
+  // Reload config from DynamoDB for this environment to get latest mappings
+  await reloadPrinterConfig(environment);
+  const printerConfig = PRINTER_CONFIGS[environment] || PRINTER_CONFIG;
 
   // Extract customer info early for logging
   const customerName = order?.customerDetails?.name || order?.customer?.name || 'Unknown';
@@ -1000,9 +1023,9 @@ app.post("/api/printers/reload-config", async (req, res) => {
   try {
     console.log('Manually reloading printer configs for all environments...');
     await Promise.all([
-      reloadPrinterConfig('local'),
-      reloadPrinterConfig('develop'),
-      reloadPrinterConfig('production')
+      reloadPrinterConfig('local', true), // Force reload
+      reloadPrinterConfig('develop', true), // Force reload
+      reloadPrinterConfig('production', true) // Force reload
     ]);
     
     res.json({ 
