@@ -73,11 +73,13 @@ export async function createPrintLog(params, environment = 'production') {
   try {
     const result = await makeGraphQLRequest(mutation, variables, env.endpoint, env.apiKey);
     console.log('✅ Print log created:', params.status, params.stage, params.message);
-    console.log('GraphQL response:', JSON.stringify(result).substring(0, 200));
+    console.log('[print-logger] GraphQL result:', JSON.stringify(result, null, 2));
+    return result;
   } catch (error) {
     // Don't throw - logging failures shouldn't break the printer system
     console.error('❌ Failed to create print log:', error.message);
-    console.error('Error details:', error);
+    console.error('[print-logger] Error details:', JSON.stringify(error, null, 2));
+    throw error; // Throw so we can see the error in the calling code
   }
 }
 
