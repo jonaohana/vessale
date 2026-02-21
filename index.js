@@ -935,24 +935,28 @@ app.delete("/cloudprnt", async (req, res) => {
           environment: environment
         });
         
-        await logSuccess({
-          orderId: ref.job.orderId || ref.job.id, // Use original order ID if available
-          restaurantId: ref.restaurantId,
-          printerSerial: config.serial,
-          stage: 'PRINT_COMPLETE',
-          message: `✓ Print completed successfully on ${config.serial}`,
-          customerName: ref.job.customerName,
-          orderNumber: ref.job.orderNumber,
-          printerStatus: 'online',
-          processingTimeMs: ref.job.offeredAt ? Date.now() - ref.job.offeredAt : 0,
-          metadata: {
-            jobId: ref.job.id,
-            statusCode: codeStr,
-            printer: config.serial,
-          },
-        }, environment);
-        
-        console.log("[print-complete-log-created]", "Success");
+        try {
+          await logSuccess({
+            orderId: ref.job.orderId || ref.job.id, // Use original order ID if available
+            restaurantId: ref.restaurantId,
+            printerSerial: config.serial,
+            stage: 'PRINT_COMPLETE',
+            message: `✓ Print completed successfully on ${config.serial}`,
+            customerName: ref.job.customerName,
+            orderNumber: ref.job.orderNumber,
+            printerStatus: 'online',
+            processingTimeMs: ref.job.offeredAt ? Date.now() - ref.job.offeredAt : 0,
+            metadata: {
+              jobId: ref.job.id,
+              statusCode: codeStr,
+              printer: config.serial,
+            },
+          }, environment);
+          
+          console.log("[print-complete-log-created]", "Success");
+        } catch (logErr) {
+          console.error("[print-complete-log-error]", logErr);
+        }
       } else {
         console.error("[print-complete-no-config]", { restaurantId: ref.restaurantId });
       }
