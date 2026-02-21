@@ -925,6 +925,11 @@ app.delete("/cloudprnt", async (req, res) => {
       
       // Track completion in history
       const config = PRINTER_CONFIG.find(p => p.restaurantId === ref.restaurantId);
+      console.log("[config-lookup]", { 
+        restaurantId: ref.restaurantId, 
+        configFound: !!config,
+        totalConfigs: PRINTER_CONFIG.length 
+      });
       if (config) {
         addToPrintHistory(config.serial, ref.restaurantId, 'completed', ref.job.id, ref.job.customerName, ref.job.orderNumber);
         
