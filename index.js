@@ -537,26 +537,32 @@ app.post("/api/print", async (req, res) => {
   const firstRestaurantId = Array.isArray(restaurantId) ? restaurantId[0] : restaurantId;
 
   // LOG: Order received
-  await logSuccess({
-    orderId: orderId,
-    restaurantId: firstRestaurantId || 'unknown',
-    stage: 'ORDER_RECEIVED',
-    message: `Order received from ${origin || 'unknown source'}`,
-    customerName: customerName,
-    orderNumber: orderNumber,
-    orderData: {
-      itemCount: order?.items?.length || 0,
-      total: order?.total,
-      isDelivery: order?.isDelivery || false,
-    },
-    metadata: {
-      origin: origin,
-      ip: req.ip,
-      userAgent: req.headers['user-agent'],
-      environment: environment,
-    },
-    processingTimeMs: Math.round(performance.now() - startTime),
-  }, environment);
+  console.log('About to call logSuccess...');
+  try {
+    await logSuccess({
+      orderId: orderId,
+      restaurantId: firstRestaurantId || 'unknown',
+      stage: 'ORDER_RECEIVED',
+      message: `Order received from ${origin || 'unknown source'}`,
+      customerName: customerName,
+      orderNumber: orderNumber,
+      orderData: {
+        itemCount: order?.items?.length || 0,
+        total: order?.total,
+        isDelivery: order?.isDelivery || false,
+      },
+      metadata: {
+        origin: origin,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        environment: environment,
+      },
+      processingTimeMs: Math.round(performance.now() - startTime),
+    }, environment);
+    console.log('logSuccess completed');
+  } catch (error) {
+    console.error('logSuccess failed:', error);
+  }
 
   if (!restaurantId) {
     // LOG: Validation failed - missing restaurantId
