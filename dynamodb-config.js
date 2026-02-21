@@ -68,19 +68,25 @@ export async function fetchPrinterConfigFromDynamoDB(environment = 'production')
   console.log(`Fetching printer config from ${environment} environment:`, env.endpoint);
   
   // GraphQL query to get all restaurant-printer mappings and printer configs
+  // Note: Not filtering by environment in the query because we need to handle null values
+  // Will filter in JavaScript code instead
   const query = `
     query GetPrinterConfig {
-      listRestaurantPrinters(filter: { isActive: { eq: true } }) {
+      listRestaurantPrinters(filter: { 
+        isActive: { eq: true }
+      }) {
         items {
           id
           restaurantId
           restaurantName
           printerConfigId
+          environment
           printerConfig {
             id
             printerId
             serial
             isActive
+            environment
           }
         }
       }
@@ -98,12 +104,18 @@ export async function fetchPrinterConfigFromDynamoDB(environment = 'production')
     const items = response.data.listRestaurantPrinters.items || [];
     
     // Build the PRINTER_CONFIG array format
-    // Each entry maps a printerId to a serial number
+    // Each entry maps a restaurantId to a serial number
     const printerConfig = [];
     
     items.forEach(item => {
       if (!item.printerConfig || !item.printerConfig.isActive) {
         return; // Skip inactive printers
+      }
+      
+      // Filter by environment: include if environment matches OR if environment is null (legacy records)
+      const itemEnv = item.environment || item.printerConfig.environment;
+      if (itemEnv && itemEnv !== environment) {
+        return; // Skip printers from different environments
       }
       
       const restaurantId = item.restaurantId; // The actual restaurant ID from the mapping
@@ -117,6 +129,7 @@ export async function fetchPrinterConfigFromDynamoDB(environment = 'production')
       printerConfig.push({
         restaurantId: restaurantId,
         serial: serial
+      });
       });
     });
     
