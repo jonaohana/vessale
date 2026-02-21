@@ -928,8 +928,14 @@ app.delete("/cloudprnt", async (req, res) => {
       if (config) {
         addToPrintHistory(config.serial, ref.restaurantId, 'completed', ref.job.id, ref.job.customerName, ref.job.orderNumber);
         
-        // LOG: Print completed successfully (non-blocking)
-        logSuccess({
+        // LOG: Print completed successfully
+        console.log("[creating-print-complete-log]", {
+          orderId: ref.job.orderId || ref.job.id,
+          stage: 'PRINT_COMPLETE',
+          environment: environment
+        });
+        
+        await logSuccess({
           orderId: ref.job.orderId || ref.job.id, // Use original order ID if available
           restaurantId: ref.restaurantId,
           printerSerial: config.serial,
@@ -944,7 +950,11 @@ app.delete("/cloudprnt", async (req, res) => {
             statusCode: codeStr,
             printer: config.serial,
           },
-        }, environment).catch(err => console.error('[log-error]', err));
+        }, environment);
+        
+        console.log("[print-complete-log-created]", "Success");
+      } else {
+        console.error("[print-complete-no-config]", { restaurantId: ref.restaurantId });
       }
       
       removeJob(String(token));
