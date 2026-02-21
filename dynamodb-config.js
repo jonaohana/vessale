@@ -106,21 +106,18 @@ export async function fetchPrinterConfigFromDynamoDB(environment = 'production')
         return; // Skip inactive printers
       }
       
-      const printerId = item.printerConfig.printerId;
+      const restaurantId = item.restaurantId; // The actual restaurant ID from the mapping
       const serial = item.printerConfig.serial;
       
-      if (!printerId || !serial) {
+      if (!restaurantId || !serial) {
         return; // Skip incomplete data
       }
       
-      // Add an entry for this printerId -> serial mapping
-      // Check if we already have this printerId to avoid duplicates
-      if (!printerConfig.some(p => p.restaurantId === printerId)) {
-        printerConfig.push({
-          restaurantId: printerId,
-          serial: serial
-        });
-      }
+      // Add an entry for this restaurantId -> serial mapping
+      printerConfig.push({
+        restaurantId: restaurantId,
+        serial: serial
+      });
     });
     
     console.log('Fetched printer config from DynamoDB:', printerConfig);

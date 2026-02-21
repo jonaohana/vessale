@@ -500,11 +500,45 @@ setInterval(() => {
   for (const [rid, q] of jobsByRestaurant.entries()) {
     for (const j of q) {
       if (j.status === "offered" && j.offeredAt && now - j.offeredAt > OFFER_TIMEOUT_MS) {
-        console.warn("[sweep->requeue offered]", { rid, token: j.id });
+        console.warn("[sweep->requeue offered]", { rid, token: j.id, timeoutMs: now - j.offeredAt });
+        
+        // LOG: Job timeout in offered state
+        logError({
+          orderId: j.id,
+          restaurantId: rid,
+          stage: 'PRINTER_POLLING',
+          message: `⏱ Print timeout: Printer not responding after ${Math.round((now - j.offeredAt) / 1000)}s (may be offline)`,
+          error: new Error('Offer timeout - printer may be offline or not polling'),
+          customerName: j.customerName,
+          orderNumber: j.orderNumber,
+          metadata: {
+            jobId: j.id,
+            timeoutMs: now - j.offeredAt,
+            status: j.status,
+          },
+        }, 'production').catch(err => console.error('[log-error]', err));
+        
         j.status = "queued"; j.offeredAt = null;
       }
       if (j.status === "sent" && j.sentAt && now - j.sentAt > SENT_TIMEOUT_MS) {
-        console.warn("[sweep->requeue sent]", { rid, token: j.id });
+        console.warn("[sweep->requeue sent]", { rid, token: j.id, timeoutMs: now - j.sentAt });
+        
+        // LOG: Job timeout in sent state
+        logError({
+          orderId: j.id,
+          restaurantId: rid,
+          stage: 'PRINT_COMPLETE',
+          message: `⏱ Print timeout: No confirmation after ${Math.round((now - j.sentAt) / 1000)}s (printer may have jammed or errored)`,
+          error: new Error('Print timeout - printer may have failed to confirm completion'),
+          customerName: j.customerName,
+          orderNumber: j.orderNumber,
+          metadata: {
+            jobId: j.id,
+            timeoutMs: now - j.sentAt,
+            status: j.status,
+          },
+        }, 'production').catch(err => console.error('[log-error]', err));
+        
         j.status = "queued"; j.sentAt = null;
       }
     }
@@ -528,41 +562,14 @@ app.post("/api/print", async (req, res) => {
   
   console.log(`Print request from ${environment} environment (origin: ${origin})`);
 
-  console.log(`test type log`);
-
   // Extract customer info early for logging
   const customerName = order?.customerDetails?.name || order?.customer?.name || 'Unknown';
   const orderNumber = order?.orderNumber || order?.id || order?.orderId || null;
   const orderId = order?.orderId || order?.id || `order-${Date.now()}`;
   const firstRestaurantId = Array.isArray(restaurantId) ? restaurantId[0] : restaurantId;
 
-  // LOG: Order received
-  console.log('About to call logSuccess...');
-  try {
-    await logSuccess({
-      orderId: orderId,
-      restaurantId: firstRestaurantId || 'unknown',
-      stage: 'ORDER_RECEIVED',
-      message: `Order received from ${origin || 'unknown source'}`,
-      customerName: customerName,
-      orderNumber: orderNumber,
-      orderData: {
-        itemCount: order?.items?.length || 0,
-        total: order?.total,
-        isDelivery: order?.isDelivery || false,
-      },
-      metadata: {
-        origin: origin,
-        ip: req.ip,
-        userAgent: req.headers['user-agent'],
-        environment: environment,
-      },
-      processingTimeMs: Math.round(performance.now() - startTime),
-    }, environment);
-    console.log('logSuccess completed');
-  } catch (error) {
-    console.error('logSuccess failed:', error);
-  }
+  // Only log order receipt - don't log every validation step
+  console.log('Order received:', { orderId, customerName, orderNumber, restaurantId });
 
   if (!restaurantId) {
     // LOG: Validation failed - missing restaurantId
@@ -570,7 +577,7 @@ app.post("/api/print", async (req, res) => {
       orderId: orderId,
       restaurantId: 'unknown',
       stage: 'ORDER_VALIDATION',
-      message: 'Missing restaurantId',
+      message: 'Order failed: Missing restaurantId',
       error: new Error('Missing required field: restaurantId'),
       customerName: customerName,
       orderNumber: orderNumber,
@@ -594,7 +601,7 @@ app.post("/api/print", async (req, res) => {
       orderId: orderId,
       restaurantId: firstRestaurantId,
       stage: 'PRINTER_LOOKUP',
-      message: `No printer configured for restaurant(s): ${bad.join(', ')}`,
+      message: `Order failed: No printer configured for restaurant(s): ${bad.join(', ')}`,
       error: new Error('Printer not found'),
       customerName: customerName,
       orderNumber: orderNumber,
@@ -610,17 +617,6 @@ app.post("/api/print", async (req, res) => {
     return res.status(404).json({ ok: false, error: `Unknown restaurantId(s): ${bad.join(", ")}` });
   }
 
-  // LOG: Validation passed
-  await logSuccess({
-    orderId: orderId,
-    restaurantId: firstRestaurantId,
-    stage: 'ORDER_VALIDATION',
-    message: 'Order validation passed',
-    customerName: customerName,
-    orderNumber: orderNumber,
-    processingTimeMs: Math.round(performance.now() - startTime),
-  }, environment);
-
   // Find printers for these restaurants
   const matchingPrinters = [];
   for (const rid of restaurantIds) {
@@ -628,22 +624,7 @@ app.post("/api/print", async (req, res) => {
     matchingPrinters.push(...configs.map(c => c.serial));
   }
 
-  // LOG: Printers found
-  await logSuccess({
-    orderId: orderId,
-    restaurantId: firstRestaurantId,
-    printerSerial: matchingPrinters[0] || null,
-    stage: 'PRINTER_LOOKUP',
-    message: `Found ${matchingPrinters.length} printer(s): ${matchingPrinters.join(', ')}`,
-    customerName: customerName,
-    orderNumber: orderNumber,
-    metadata: {
-      allPrinters: matchingPrinters,
-      restaurants: restaurantIds,
-    },
-    processingTimeMs: Math.round(performance.now() - startTime),
-  }, environment);
-
+  // Create print jobs (no logging here - wait for completion)
   const tokens = [];
   for (const rid of restaurantIds) {
     const id = makeId();
@@ -659,18 +640,26 @@ app.post("/api/print", async (req, res) => {
     }
   }
 
-  // LOG: Job created
+  // LOG: Job created successfully - this is the main success log
   await logSuccess({
     orderId: orderId,
     restaurantId: firstRestaurantId,
     printerSerial: matchingPrinters[0] || null,
     stage: 'JOB_CREATION',
-    message: `Print job(s) created: ${tokens.join(', ')}`,
+    message: `Print job created for ${matchingPrinters.length} printer(s): ${matchingPrinters.join(', ')}`,
     customerName: customerName,
     orderNumber: orderNumber,
+    orderData: {
+      itemCount: order?.items?.length || 0,
+      total: order?.total,
+      restaurants: restaurantIds,
+    },
     metadata: {
       jobIds: tokens,
       jobCount: tokens.length,
+      printers: matchingPrinters,
+      origin: origin,
+      environment: environment,
     },
     processingTimeMs: Math.round(performance.now() - startTime),
   }, environment);
@@ -699,7 +688,7 @@ app.post("/api/print", async (req, res) => {
         restaurantId: firstRestaurantId,
         printerSerial: matchingPrinters[0] || null,
         stage: 'JOB_CREATION',
-        message: `Failed to render receipt: ${e.message}`,
+        message: `Print job failed: Receipt rendering error - ${e.message}`,
         error: e,
         customerName: customerName,
         orderNumber: orderNumber,
@@ -746,22 +735,7 @@ app.post("/cloudprnt", (req, res) => {
   // Track offer in history
   addToPrintHistory(serial, job.restaurantId, 'offered', job.id, job.customerName, job.orderNumber);
 
-  // LOG: Printer accepted job (non-blocking)
-  logSuccess({
-    orderId: job.id,
-    restaurantId: job.restaurantId,
-    printerSerial: serial,
-    stage: 'PRINTER_POLLING',
-    message: `Printer ${serial} accepted job ${job.id}`,
-    customerName: job.customerName,
-    orderNumber: job.orderNumber,
-    printerStatus: 'online',
-    metadata: {
-      jobId: job.id,
-      printerIp: req.ip,
-    },
-  }, getEnvironmentFromOrigin(req.headers.origin || req.headers.referer || '')).catch(err => console.error('[log-error]', err));
-
+  // Don't log polling - too noisy
   res.json({
     jobReady: true,
     jobToken: job.id,
@@ -777,11 +751,16 @@ app.get("/cloudprnt", (req, res) => {
   if (type !== "image/png") return res.status(415).send("Unsupported media type");
 
   const ref = jobIndex.get(String(token));
-  if (!ref) return res.sendStatus(404);
+  if (!ref) {
+    console.log("[get token-not-found]", { token });
+    return res.sendStatus(404);
+  }
 
   const job = ref.job;
   if (!job.content) {
-    console.log("[get not-ready]", { token: job.id, rid: ref.restaurantId });
+    console.log("[get not-ready]", { token: job.id, rid: ref.restaurantId, status: job.status });
+    
+    // Only log if this happens repeatedly - otherwise too noisy
     return res.json({ jobReady: false });
   }
 
@@ -795,7 +774,8 @@ app.get("/cloudprnt", (req, res) => {
     addToPrintHistory(config.serial, ref.restaurantId, 'sent', job.id, job.customerName, job.orderNumber);
   }
 
-  console.log("[serve]", { token: job.id, rid: ref.restaurantId });
+  // Don't log content fetch - too noisy
+  console.log("[serve]", { token: job.id, rid: ref.restaurantId, size: job.content.length });
   const buf = job.content;
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Content-Length", String(buf.length));
@@ -829,7 +809,7 @@ app.delete("/cloudprnt", async (req, res) => {
           restaurantId: ref.restaurantId,
           printerSerial: config.serial,
           stage: 'PRINT_COMPLETE',
-          message: `Print completed successfully on ${config.serial}`,
+          message: `✓ Print completed successfully on ${config.serial}`,
           customerName: ref.job.customerName,
           orderNumber: ref.job.orderNumber,
           printerStatus: 'online',
@@ -837,6 +817,7 @@ app.delete("/cloudprnt", async (req, res) => {
           metadata: {
             jobId: ref.job.id,
             statusCode: codeStr,
+            printer: config.serial,
           },
         }, environment).catch(err => console.error('[log-error]', err));
       }
@@ -856,13 +837,14 @@ app.delete("/cloudprnt", async (req, res) => {
           restaurantId: ref.restaurantId,
           printerSerial: config.serial,
           stage: 'PRINT_COMPLETE',
-          message: `Print failed with code: ${codeStr}`,
+          message: `✗ Print failed on ${config.serial} with code: ${codeStr}`,
           error: new Error(`Printer returned error code: ${codeStr}`),
           customerName: ref.job.customerName,
           orderNumber: ref.job.orderNumber,
           metadata: {
             jobId: ref.job.id,
             statusCode: codeStr,
+            printer: config.serial,
           },
         }, environment).catch(err => console.error('[log-error]', err));
       }
