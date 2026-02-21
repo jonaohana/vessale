@@ -602,6 +602,13 @@ app.post("/api/print", async (req, res) => {
     orderId = order?.orderId || order?.id || `order-${Date.now()}`;
     firstRestaurantId = Array.isArray(restaurantId) ? restaurantId[0] : restaurantId;
 
+    // Debug: Log what orderId we're using
+    console.log('[orderId-debug]', {
+      fromOrder: { orderId: order?.orderId, id: order?.id },
+      generated: orderId,
+      timestamp: Date.now()
+    });
+
     // LOG: Order received
     await logSuccess({
       orderId: orderId,
