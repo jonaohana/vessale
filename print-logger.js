@@ -85,9 +85,21 @@ export async function createPrintLog(params, environment = 'production') {
  * Helper to log successful operations
  */
 export async function logSuccess(params, environment = 'production') {
+  // Map stage to appropriate status
+  let status = 'PROCESSING';
+  if (params.stage === 'PRINT_COMPLETE') {
+    status = 'PRINTED';
+  } else if (params.stage === 'ORDER_RECEIVED') {
+    status = 'RECEIVED';
+  } else if (params.stage === 'JOB_CREATION') {
+    status = 'SENT_TO_PRINTER';
+  } else if (params.stage === 'PRINTER_POLLING') {
+    status = 'PRINTER_ACCEPTED';
+  }
+  
   return createPrintLog({
     ...params,
-    status: params.stage === 'PRINT_COMPLETE' ? 'PRINTED' : 'PROCESSING',
+    status: status,
   }, environment);
 }
 
