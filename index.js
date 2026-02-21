@@ -69,10 +69,12 @@ async function reloadPrinterConfig(environment = 'production', forceReload = fal
       CONFIG_LAST_RELOAD[environment] = Date.now(); // Update cache timestamp
       console.log(`Loaded ${dynamoConfig.length} printer configs from DynamoDB for ${environment}`);
       
+      // Always rebuild the global mapping to include all environments
+      rebuildSerialToRestaurantMapping();
+      
       // Update default config to production
       if (environment === 'production') {
         PRINTER_CONFIG = dynamoConfig;
-        rebuildSerialToRestaurantMapping();
       }
     } else {
       console.log(`No config from DynamoDB for ${environment}, using fallback config`);
@@ -82,16 +84,22 @@ async function reloadPrinterConfig(environment = 'production', forceReload = fal
   }
 }
 
-// Function to rebuild the serial-to-restaurant mapping
+// Function to rebuild the serial-to-restaurant mapping from ALL environments
 function rebuildSerialToRestaurantMapping() {
   serialToRestaurantList.clear();
   serialRR.clear();
   
-  for (const { serial, restaurantId } of PRINTER_CONFIG) {
-    const s = String(serial).trim();
-    const arr = serialToRestaurantList.get(s) || [];
-    arr.push(restaurantId);
-    serialToRestaurantList.set(s, arr);
+  // Include printers from ALL environments
+  for (const env of ['local', 'develop', 'production']) {
+    const config = PRINTER_CONFIGS[env] || [];
+    for (const { serial, restaurantId } of config) {
+      const s = String(serial).trim();
+      const arr = serialToRestaurantList.get(s) || [];
+      if (!arr.includes(restaurantId)) {
+        arr.push(restaurantId);
+      }
+      serialToRestaurantList.set(s, arr);
+    }
   }
   
   console.log('Rebuilt serial-to-restaurant mapping:', 
