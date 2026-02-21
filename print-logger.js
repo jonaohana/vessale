@@ -30,14 +30,16 @@ const ENVIRONMENTS = {
  * @param {Object} params.orderData - Order data snapshot (optional)
  * @param {string} params.customerName - Customer name (optional)
  * @param {string} params.orderNumber - Order number (optional)
- * @param {string} params.environment - Environment (LOCAL, DEVELOP, PRODUCTION)
  * @param {string} params.printerStatus - Printer status (optional)
  * @param {number} params.processingTimeMs - Processing time in ms (optional)
  * @param {number} params.retryCount - Retry count (optional)
  * @param {Object} params.metadata - Additional metadata (optional)
+ * @param {string} environment - Environment ('local', 'develop', or 'production')
  */
-export async function createPrintLog(params) {
-  const env = ENVIRONMENTS[params.environment?.toLowerCase()] || ENVIRONMENTS.production;
+export async function createPrintLog(params, environment = 'production') {
+  console.log(`[print-logger] Creating log for ${environment} environment`);
+  const env = ENVIRONMENTS[environment?.toLowerCase()] || ENVIRONMENTS.production;
+  console.log(`[print-logger] Using endpoint: ${env.endpoint.substring(0, 50)}...`);
   
   const mutation = `
     mutation CreatePrintLog($input: CreatePrintLogInput!) {
@@ -60,7 +62,7 @@ export async function createPrintLog(params) {
       orderData: params.orderData ? JSON.stringify(params.orderData) : null,
       customerName: params.customerName || null,
       orderNumber: params.orderNumber || null,
-      environment: (params.environment || 'PRODUCTION').toUpperCase(),
+      environment: (environment || 'production').toUpperCase(),
       printerStatus: params.printerStatus || null,
       processingTimeMs: params.processingTimeMs || 0,
       retryCount: params.retryCount || 0,
@@ -80,17 +82,17 @@ export async function createPrintLog(params) {
 /**
  * Helper to log successful operations
  */
-export async function logSuccess(params) {
+export async function logSuccess(params, environment = 'production') {
   return createPrintLog({
     ...params,
     status: params.stage === 'PRINT_COMPLETE' ? 'PRINTED' : 'PROCESSING',
-  });
+  }, environment);
 }
 
 /**
  * Helper to log errors
  */
-export async function logError(params) {
+export async function logError(params, environment = 'production') {
   return createPrintLog({
     ...params,
     status: 'ERROR',
