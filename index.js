@@ -580,41 +580,44 @@ setInterval(() => {
 // Create jobs; render async
 app.post("/api/print", async (req, res) => {
   const startTime = performance.now();
-  const { restaurantId, order } = req.body || {};
+  let orderId, customerName, orderNumber, firstRestaurantId, environment, matchingPrinters;
   
-  // Determine environment from X-Environment header (for test prints) or origin/referer header
-  const envHeader = req.headers['x-environment'];
-  const origin = req.headers.origin || req.headers.referer || '';
-  const environment = envHeader || getEnvironmentFromOrigin(origin);
-  
-  console.log(`Print request from ${environment} environment (origin: ${origin})`);
-  
-  // Reload config from DynamoDB for this environment to get latest mappings
-  await reloadPrinterConfig(environment);
-  const printerConfig = PRINTER_CONFIGS[environment] || PRINTER_CONFIG;
+  try {
+    const { restaurantId, order } = req.body || {};
+    
+    // Determine environment from X-Environment header (for test prints) or origin/referer header
+    const envHeader = req.headers['x-environment'];
+    const origin = req.headers.origin || req.headers.referer || '';
+    environment = envHeader || getEnvironmentFromOrigin(origin);
+    
+    console.log(`Print request from ${environment} environment (origin: ${origin})`);
+    
+    // Reload config from DynamoDB for this environment to get latest mappings
+    await reloadPrinterConfig(environment);
+    const printerConfig = PRINTER_CONFIGS[environment] || PRINTER_CONFIG;
 
-  // Extract customer info early for logging
-  const customerName = order?.customerDetails?.name || order?.customer?.name || 'Unknown';
-  const orderNumber = order?.orderNumber || order?.id || order?.orderId || null;
-  const orderId = order?.orderId || order?.id || `order-${Date.now()}`;
-  const firstRestaurantId = Array.isArray(restaurantId) ? restaurantId[0] : restaurantId;
+    // Extract customer info early for logging
+    customerName = order?.customerDetails?.name || order?.customer?.name || 'Unknown';
+    orderNumber = order?.orderNumber || order?.id || order?.orderId || null;
+    orderId = order?.orderId || order?.id || `order-${Date.now()}`;
+    firstRestaurantId = Array.isArray(restaurantId) ? restaurantId[0] : restaurantId;
 
-  // LOG: Order received
-  await logSuccess({
-    orderId: orderId,
-    restaurantId: firstRestaurantId || 'unknown',
-    stage: 'ORDER_RECEIVED',
-    message: `Order received from ${origin || 'unknown source'}`,
-    customerName: customerName,
-    orderNumber: orderNumber,
-    orderData: {
-      itemCount: order?.items?.length || 0,
-      total: order?.total,
-    },
-    processingTimeMs: Math.round(performance.now() - startTime),
-  }, environment);
+    // LOG: Order received
+    await logSuccess({
+      orderId: orderId,
+      restaurantId: firstRestaurantId || 'unknown',
+      stage: 'ORDER_RECEIVED',
+      message: `Order received from ${origin || 'unknown source'}`,
+      customerName: customerName,
+      orderNumber: orderNumber,
+      orderData: {
+        itemCount: order?.items?.length || 0,
+        total: order?.total,
+      },
+      processingTimeMs: Math.round(performance.now() - startTime),
+    }, environment);
 
-  console.log('Order received:', { orderId, customerName, orderNumber, restaurantId });
+    console.log('Order received:', { orderId, customerName, orderNumber, restaurantId });
 
   if (!restaurantId) {
     // LOG: Validation failed - missing restaurantId
@@ -783,6 +786,29 @@ app.post("/api/print", async (req, res) => {
       }
     }
   })();
+  
+  } catch (error) {
+    // LOG: Unexpected error in print endpoint
+    console.error('Unexpected error in /api/print:', error);
+    
+    await logError({
+      orderId: orderId || `error-${Date.now()}`,
+      restaurantId: firstRestaurantId || 'unknown',
+      printerSerial: matchingPrinters?.[0] || null,
+      stage: 'ORDER_RECEIVED',
+      message: `Unexpected error: ${error.message}`,
+      error: error,
+      customerName: customerName || 'Unknown',
+      orderNumber: orderNumber || null,
+      processingTimeMs: Math.round(performance.now() - startTime),
+    }, environment || 'production');
+    
+    return res.status(500).json({ 
+      ok: false, 
+      error: 'Internal server error',
+      message: error.message 
+    });
+  }
 });
 
 // Poll: offer next job for this serial (round-robin across its restaurant queues)
@@ -915,7 +941,7 @@ app.delete("/cloudprnt", async (req, res) => {
         
         // LOG: Print failed (non-blocking)
         logError({
-          orderId: ref.job.id,
+          orderId: ref.job.orderId || ref.job.id, // Use original order ID if available
           restaurantId: ref.restaurantId,
           printerSerial: config.serial,
           stage: 'PRINT_COMPLETE',
