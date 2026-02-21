@@ -930,47 +930,49 @@ app.delete("/cloudprnt", async (req, res) => {
         configFound: !!config,
         totalConfigs: PRINTER_CONFIG.length 
       });
+      
+      // Add to print history if config exists
       if (config) {
         addToPrintHistory(config.serial, ref.restaurantId, 'completed', ref.job.id, ref.job.customerName, ref.job.orderNumber);
-        
-        // LOG: Print completed successfully
-        console.log("[creating-print-complete-log]", {
-          orderId: ref.job.orderId || ref.job.id,
-          stage: 'PRINT_COMPLETE',
-          environment: environment
-        });
-        
-        try {
-          // Add timeout to prevent hanging
-          const logPromise = logSuccess({
-            orderId: ref.job.orderId || ref.job.id, // Use original order ID if available
-            restaurantId: ref.restaurantId,
-            printerSerial: config.serial,
-            stage: 'PRINT_COMPLETE',
-            message: `✓ Print completed successfully on ${config.serial}`,
-            customerName: ref.job.customerName,
-            orderNumber: ref.job.orderNumber,
-            printerStatus: 'online',
-            processingTimeMs: ref.job.offeredAt ? Date.now() - ref.job.offeredAt : 0,
-            metadata: {
-              jobId: ref.job.id,
-              statusCode: codeStr,
-              printer: config.serial,
-            },
-          }, environment);
-          
-          // Wait max 5 seconds for log to complete
-          await Promise.race([
-            logPromise,
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Log timeout after 5s')), 5000))
-          ]);
-          
-          console.log("[print-complete-log-created]", "Success");
-        } catch (logErr) {
-          console.error("[print-complete-log-error]", logErr.message || logErr);
-        }
       } else {
-        console.error("[print-complete-no-config]", { restaurantId: ref.restaurantId });
+        console.warn("[print-complete-no-config]", { restaurantId: ref.restaurantId });
+      }
+      
+      // LOG: Print completed successfully (always log regardless of config)
+      console.log("[creating-print-complete-log]", {
+        orderId: ref.job.orderId || ref.job.id,
+        stage: 'PRINT_COMPLETE',
+        environment: environment
+      });
+      
+      try {
+        // Add timeout to prevent hanging
+        const logPromise = logSuccess({
+          orderId: ref.job.orderId || ref.job.id, // Use original order ID if available
+          restaurantId: ref.restaurantId,
+          printerSerial: config?.serial || 'unknown',
+          stage: 'PRINT_COMPLETE',
+          message: `✓ Print completed successfully${config ? ` on ${config.serial}` : ''}`,
+          customerName: ref.job.customerName,
+          orderNumber: ref.job.orderNumber,
+          printerStatus: 'online',
+          processingTimeMs: ref.job.offeredAt ? Date.now() - ref.job.offeredAt : 0,
+          metadata: {
+            jobId: ref.job.id,
+            statusCode: codeStr,
+            printer: config?.serial || 'unknown',
+          },
+        }, environment);
+        
+        // Wait max 5 seconds for log to complete
+        await Promise.race([
+          logPromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Log timeout after 5s')), 5000))
+        ]);
+        
+        console.log("[print-complete-log-created]", "Success");
+      } catch (logErr) {
+        console.error("[print-complete-log-error]", logErr.message || logErr);
       }
       
       removeJob(String(token));
