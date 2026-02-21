@@ -130,7 +130,6 @@ export async function fetchPrinterConfigFromDynamoDB(environment = 'production')
         restaurantId: restaurantId,
         serial: serial
       });
-      });
     });
     
     console.log('Fetched printer config from DynamoDB:', printerConfig);
