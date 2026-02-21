@@ -72,14 +72,11 @@ export async function createPrintLog(params, environment = 'production') {
 
   try {
     const result = await makeGraphQLRequest(mutation, variables, env.endpoint, env.apiKey);
-    console.log('✅ Print log created:', params.status, params.stage, params.message);
-    console.log('[print-logger] GraphQL result:', JSON.stringify(result, null, 2));
+    console.log('✅ Print log created:', params.status, params.stage);
     return result;
   } catch (error) {
     // Don't throw - logging failures shouldn't break the printer system
     console.error('❌ Failed to create print log:', error.message);
-    console.error('[print-logger] Error details:', JSON.stringify(error, null, 2));
-    throw error; // Throw so we can see the error in the calling code
   }
 }
 
@@ -173,7 +170,7 @@ function makeGraphQLRequest(query, variables = {}, endpoint, apiKey) {
     });
 
     // Set a timeout to prevent hanging requests
-    req.setTimeout(5000, () => {
+    req.setTimeout(10000, () => {
       req.destroy();
       reject(new Error('Request timeout'));
     });
