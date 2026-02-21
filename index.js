@@ -936,7 +936,8 @@ app.delete("/cloudprnt", async (req, res) => {
         });
         
         try {
-          await logSuccess({
+          // Add timeout to prevent hanging
+          const logPromise = logSuccess({
             orderId: ref.job.orderId || ref.job.id, // Use original order ID if available
             restaurantId: ref.restaurantId,
             printerSerial: config.serial,
@@ -953,9 +954,15 @@ app.delete("/cloudprnt", async (req, res) => {
             },
           }, environment);
           
+          // Wait max 5 seconds for log to complete
+          await Promise.race([
+            logPromise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Log timeout after 5s')), 5000))
+          ]);
+          
           console.log("[print-complete-log-created]", "Success");
         } catch (logErr) {
-          console.error("[print-complete-log-error]", logErr);
+          console.error("[print-complete-log-error]", logErr.message || logErr);
         }
       } else {
         console.error("[print-complete-no-config]", { restaurantId: ref.restaurantId });
@@ -990,6 +997,8 @@ app.delete("/cloudprnt", async (req, res) => {
       
       requeueToken(String(token));
     }
+    
+    // Send response after logging completes
     res.sendStatus(200);
   } catch (error) {
     console.error('[delete-error]', error);
