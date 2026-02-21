@@ -528,6 +528,8 @@ app.post("/api/print", async (req, res) => {
   
   console.log(`Print request from ${environment} environment (origin: ${origin})`);
 
+  console.log(`test type log`);
+
   // Extract customer info early for logging
   const customerName = order?.customerDetails?.name || order?.customer?.name || 'Unknown';
   const orderNumber = order?.orderNumber || order?.id || order?.orderId || null;
