@@ -599,14 +599,16 @@ app.post("/api/print", async (req, res) => {
     // Extract customer info early for logging
     customerName = order?.customerDetails?.name || order?.customer?.name || 'Unknown';
     orderNumber = order?.orderNumber || order?.id || order?.orderId || null;
-    orderId = order?.orderId || order?.id || `order-${Date.now()}`;
+    
+    // Generate ONE transaction ID for the entire print flow - use order's ID if available, otherwise generate unique ID
+    orderId = order?.orderId || order?.id || `txn-${makeId()}`;
     firstRestaurantId = Array.isArray(restaurantId) ? restaurantId[0] : restaurantId;
 
     // Debug: Log what orderId we're using
     console.log('[orderId-debug]', {
       fromOrder: { orderId: order?.orderId, id: order?.id },
       generated: orderId,
-      timestamp: Date.now()
+      willUseForAllLogs: orderId
     });
 
     // LOG: Order received
