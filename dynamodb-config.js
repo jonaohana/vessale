@@ -164,9 +164,14 @@ function makeGraphQLRequest(query, variables = {}, endpoint, apiKey) {
         'Content-Type': 'application/json',
         'Content-Length': data.length,
         'x-api-key': apiKey
-      },
-      timeout: 10000 // 10 second timeout
+      }
     };
+
+    // Set up timeout
+    const timeout = setTimeout(() => {
+      req.destroy();
+      reject(new Error('Request timeout after 10 seconds'));
+    }, 10000);
 
     const req = https.request(options, (res) => {
       let responseData = '';
@@ -176,6 +181,7 @@ function makeGraphQLRequest(query, variables = {}, endpoint, apiKey) {
       });
 
       res.on('end', () => {
+        clearTimeout(timeout);
         try {
           const parsed = JSON.parse(responseData);
           if (parsed.errors) {
@@ -190,12 +196,8 @@ function makeGraphQLRequest(query, variables = {}, endpoint, apiKey) {
       });
     });
 
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('Request timeout after 10 seconds'));
-    });
-
     req.on('error', (e) => {
+      clearTimeout(timeout);
       reject(e);
     });
 
