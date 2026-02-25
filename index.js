@@ -1141,7 +1141,12 @@ app.get("/api/printers", (req, res) => {
     return Array.from(envs);
   };
   
-  const uniqueSerials = new Set(PRINTER_CONFIG.map(p => String(p.serial).trim()));
+  // Gather unique serials from ALL environments, not just production
+  const uniqueSerials = new Set();
+  for (const config of Object.values(PRINTER_CONFIGS)) {
+    config.forEach(p => uniqueSerials.add(String(p.serial).trim()));
+  }
+  
   const out = Array.from(uniqueSerials).map((serial) => {
     const rec = seenBySerial.get(serial);
     const restaurants = serialToRestaurantList.get(serial) || [];
