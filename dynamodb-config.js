@@ -329,6 +329,7 @@ export async function fetchAllPrintersFromAllEnvironments() {
     try {
       console.log(`[${envName}] Fetching printers from endpoint: ${envConfig.endpoint}`);
       
+      // Query without 'environment' field since older environments may not have it in schema
       const query = `
         query ListPrinterConfigs {
           listPrinterConfigs {
@@ -340,7 +341,6 @@ export async function fetchAllPrintersFromAllEnvironments() {
               ipAddress
               isActive
               lastSeen
-              environment
               createdAt
               updatedAt
             }
