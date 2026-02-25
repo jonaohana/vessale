@@ -213,3 +213,96 @@ export const FALLBACK_PRINTER_CONFIG = [
   { restaurantId: "arth-printer-2", serial: "2581019090600186" },
   { restaurantId: "arth-printer-3", serial: "2581019070600090" },
 ];
+
+/**
+ * Migrate printers from one environment to another
+ * Updates both PrinterConfig and RestaurantPrinter records
+ * @param {string[]} printerIds - Array of PrinterConfig IDs to migrate
+ * @param {string} sourceEnvironment - Source environment ('local', 'develop', or 'production')
+ * @param {string} targetEnvironment - Target environment ('local', 'develop', or 'production')
+ */
+export async function migratePrintersEnvironment(printerIds, sourceEnvironment, targetEnvironment) {
+  const env = ENVIRONMENTS[targetEnvironment];
+  
+  if (!env) {
+    throw new Error('Invalid target environment');
+  }
+
+  console.log(`Migrating ${printerIds.length} printers from ${sourceEnvironment} to ${targetEnvironment}`);
+
+  let updated = 0;
+  let failed = 0;
+
+  for (const printerId of printerIds) {
+    try {
+      // Update PrinterConfig
+      const updatePrinterMutation = `
+        mutation UpdatePrinterConfig($input: UpdatePrinterConfigInput!) {
+          updatePrinterConfig(input: $input) {
+            id
+            environment
+          }
+        }
+      `;
+
+      const printerVariables = {
+        input: {
+          id: printerId,
+          environment: targetEnvironment.toUpperCase()
+        }
+      };
+
+      await makeGraphQLRequest(updatePrinterMutation, printerVariables, env.endpoint, env.apiKey);
+      
+      // Update all RestaurantPrinter mappings for this printer
+      const listMappingsQuery = `
+        query ListRestaurantPrinters($filter: ModelRestaurantPrinterFilterInput) {
+          listRestaurantPrinters(filter: $filter) {
+            items {
+              id
+              printerConfigId
+            }
+          }
+        }
+      `;
+
+      const listVariables = {
+        filter: {
+          printerConfigId: { eq: printerId }
+        }
+      };
+
+      const mappingsResponse = await makeGraphQLRequest(listMappingsQuery, listVariables, env.endpoint, env.apiKey);
+      const mappings = mappingsResponse.data?.listRestaurantPrinters?.items || [];
+
+      // Update each mapping
+      for (const mapping of mappings) {
+        const updateMappingMutation = `
+          mutation UpdateRestaurantPrinter($input: UpdateRestaurantPrinterInput!) {
+            updateRestaurantPrinter(input: $input) {
+              id
+              environment
+            }
+          }
+        `;
+
+        const mappingVariables = {
+          input: {
+            id: mapping.id,
+            environment: targetEnvironment.toUpperCase()
+          }
+        };
+
+        await makeGraphQLRequest(updateMappingMutation, mappingVariables, env.endpoint, env.apiKey);
+      }
+
+      console.log(`✓ Migrated printer ${printerId} and ${mappings.length} restaurant mapping(s)`);
+      updated++;
+    } catch (error) {
+      console.error(`✗ Failed to migrate printer ${printerId}:`, error.message);
+      failed++;
+    }
+  }
+
+  return { updated, failed };
+}

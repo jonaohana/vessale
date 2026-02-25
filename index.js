@@ -1015,6 +1015,64 @@ app.get("/debug/serial/:serial", (req, res) => {
 });
 
 // --------------------------
+// Printer Migration endpoint
+// --------------------------
+
+/**
+ * POST /api/migrate-printers
+ * Migrates printers from one environment to another by updating the environment field in DynamoDB
+ * Body: { printerIds: string[], sourceEnvironment: string, targetEnvironment: string }
+ */
+app.post("/api/migrate-printers", async (req, res) => {
+  try {
+    const { printerIds, sourceEnvironment, targetEnvironment } = req.body;
+
+    if (!printerIds || !Array.isArray(printerIds) || printerIds.length === 0) {
+      return res.status(400).json({ error: 'printerIds must be a non-empty array' });
+    }
+
+    if (!sourceEnvironment || !targetEnvironment) {
+      return res.status(400).json({ error: 'sourceEnvironment and targetEnvironment are required' });
+    }
+
+    if (!['local', 'develop', 'production'].includes(sourceEnvironment) || 
+        !['local', 'develop', 'production'].includes(targetEnvironment)) {
+      return res.status(400).json({ error: 'Invalid environment specified' });
+    }
+
+    if (sourceEnvironment === targetEnvironment) {
+      return res.status(400).json({ error: 'Source and target environments must be different' });
+    }
+
+    console.log(`[migrate-printers] Migrating ${printerIds.length} printers from ${sourceEnvironment} to ${targetEnvironment}`);
+
+    const { migratePrintersEnvironment } = await import('./dynamodb-config.js');
+    
+    const result = await migratePrintersEnvironment(
+      printerIds,
+      sourceEnvironment,
+      targetEnvironment
+    );
+
+    // Reload config for both environments after migration
+    await reloadPrinterConfig(sourceEnvironment, true);
+    await reloadPrinterConfig(targetEnvironment, true);
+
+    console.log(`[migrate-printers] Successfully migrated ${result.updated} printers, ${result.failed} failed`);
+
+    res.json({ 
+      ok: true, 
+      updated: result.updated,
+      failed: result.failed,
+      message: `Migrated ${result.updated} printer(s) from ${sourceEnvironment} to ${targetEnvironment}`
+    });
+  } catch (error) {
+    console.error('[migrate-printers-error]', error);
+    res.status(500).json({ error: error.message || 'Failed to migrate printers' });
+  }
+});
+
+// --------------------------
 // Presence endpoints
 // --------------------------
 
