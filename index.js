@@ -1015,8 +1015,34 @@ app.get("/debug/serial/:serial", (req, res) => {
 });
 
 // --------------------------
-// Printer Migration endpoint
+// Printer Migration endpoints
 // --------------------------
+
+/**
+ * GET /api/printers/all-environments
+ * Fetches all printers from all three environments (local, develop, production)
+ * Returns combined list with environment field populated
+ */
+app.get("/api/printers/all-environments", async (req, res) => {
+  try {
+    console.log('[all-environments] Fetching printers from all environments...');
+    
+    const { fetchAllPrintersFromAllEnvironments } = await import('./dynamodb-config.js');
+    
+    const printers = await fetchAllPrintersFromAllEnvironments();
+    
+    console.log('[all-environments] Fetched', printers.length, 'total printers');
+    
+    res.json({ 
+      ok: true, 
+      printers: printers,
+      count: printers.length
+    });
+  } catch (error) {
+    console.error('[all-environments-error]', error);
+    res.status(500).json({ error: 'Failed to fetch printers from all environments' });
+  }
+});
 
 /**
  * POST /api/migrate-printers

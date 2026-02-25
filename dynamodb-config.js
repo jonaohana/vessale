@@ -306,3 +306,65 @@ export async function migratePrintersEnvironment(printerIds, sourceEnvironment, 
 
   return { updated, failed };
 }
+
+/**
+ * Fetch all printers from all three environments
+ * Returns a combined array of printers with environment field populated
+ */
+export async function fetchAllPrintersFromAllEnvironments() {
+  console.log('Fetching printers from all environments...');
+  
+  const allPrinters = [];
+  
+  // Fetch from each environment
+  for (const [envName, envConfig] of Object.entries(ENVIRONMENTS)) {
+    try {
+      console.log(`Fetching printers from ${envName}...`);
+      
+      const query = `
+        query ListPrinterConfigs {
+          listPrinterConfigs {
+            items {
+              id
+              printerId
+              serial
+              name
+              ipAddress
+              isActive
+              lastSeen
+              environment
+              createdAt
+              updatedAt
+            }
+          }
+        }
+      `;
+      
+      const response = await makeGraphQLRequest(query, {}, envConfig.endpoint, envConfig.apiKey);
+      
+      if (!response.data || !response.data.listPrinterConfigs) {
+        console.error(`Invalid response from ${envName}:`, response);
+        continue;
+      }
+      
+      const printers = response.data.listPrinterConfigs.items || [];
+      
+      // Add environment field if missing and add to combined list
+      printers.forEach(printer => {
+        allPrinters.push({
+          ...printer,
+          // Use the environment field from DB, or default to the environment we fetched from
+          environment: printer.environment || envName
+        });
+      });
+      
+      console.log(`✓ Fetched ${printers.length} printers from ${envName}`);
+    } catch (error) {
+      console.error(`✗ Error fetching printers from ${envName}:`, error.message);
+      // Continue with other environments even if one fails
+    }
+  }
+  
+  console.log(`Total printers from all environments: ${allPrinters.length}`);
+  return allPrinters;
+}
