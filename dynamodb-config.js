@@ -9,7 +9,7 @@ const ENVIRONMENTS = {
   },
   develop: {
     endpoint: 'https://k2aa7szpyvfqznxlw3u4v35c2m.appsync-api.us-east-2.amazonaws.com/graphql',
-    apiKey: 'da2-44g36v6iunecbki2s3jhxvoeyuh'
+    apiKey: 'da2-44g36v6iunecbki2s3jhxvoeyu'
   },
   production: {
     endpoint: 'https://xcvbmegvdzcm3grnd44njlvwka.appsync-api.us-east-2.amazonaws.com/graphql',
