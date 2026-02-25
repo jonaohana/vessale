@@ -319,7 +319,7 @@ export async function fetchAllPrintersFromAllEnvironments() {
   // Fetch from each environment
   for (const [envName, envConfig] of Object.entries(ENVIRONMENTS)) {
     try {
-      console.log(`Fetching printers from ${envName}...`);
+      console.log(`[${envName}] Fetching printers from endpoint: ${envConfig.endpoint}`);
       
       const query = `
         query ListPrinterConfigs {
@@ -342,12 +342,16 @@ export async function fetchAllPrintersFromAllEnvironments() {
       
       const response = await makeGraphQLRequest(query, {}, envConfig.endpoint, envConfig.apiKey);
       
+      console.log(`[${envName}] Response received:`, JSON.stringify(response, null, 2));
+      
       if (!response.data || !response.data.listPrinterConfigs) {
-        console.error(`Invalid response from ${envName}:`, response);
+        console.error(`[${envName}] Invalid response structure - missing data.listPrinterConfigs`);
         continue;
       }
       
       const printers = response.data.listPrinterConfigs.items || [];
+      
+      console.log(`[${envName}] Found ${printers.length} printers in database`);
       
       // Add environment field if missing and add to combined list
       printers.forEach(printer => {
@@ -358,9 +362,9 @@ export async function fetchAllPrintersFromAllEnvironments() {
         });
       });
       
-      console.log(`✓ Fetched ${printers.length} printers from ${envName}`);
+      console.log(`[${envName}] ✓ Successfully added ${printers.length} printers to combined list`);
     } catch (error) {
-      console.error(`✗ Error fetching printers from ${envName}:`, error.message);
+      console.error(`[${envName}] ✗ Error:`, error);
       // Continue with other environments even if one fails
     }
   }
