@@ -1120,21 +1120,15 @@ app.get("/api/printers/online", (req, res) => {
  * Returns every configured printer with status online/offline and last seen info if known.
  */
 app.get("/api/printers", (req, res) => {
-  // Helper to find which environment(s) a serial/restaurant combo exists in
-  const findEnvironments = (serial, restaurants) => {
+  // Helper to find which environment(s) a serial exists in
+  const findEnvironments = (serial) => {
     const envs = new Set();
     
-    // Check each environment's config
+    // Check each environment's config for this serial
     for (const [env, config] of Object.entries(PRINTER_CONFIGS)) {
       const hasSerial = config.some(p => String(p.serial).trim() === serial);
       if (hasSerial) {
-        // Check if any of the restaurants match
-        const hasRestaurant = restaurants.some(rid => 
-          config.some(p => String(p.serial).trim() === serial && p.restaurantId === rid)
-        );
-        if (hasRestaurant) {
-          envs.add(env);
-        }
+        envs.add(env);
       }
     }
     
@@ -1150,7 +1144,7 @@ app.get("/api/printers", (req, res) => {
   const out = Array.from(uniqueSerials).map((serial) => {
     const rec = seenBySerial.get(serial);
     const restaurants = serialToRestaurantList.get(serial) || [];
-    const environments = findEnvironments(serial, restaurants);
+    const environments = findEnvironments(serial);
     
     if (!rec) {
       return { 
@@ -1176,7 +1170,7 @@ app.get("/api/printers", (req, res) => {
     if (!uniqueSerials.has(serial)) {
       const base = toPublicPresence(rec);
       const restaurants = serialToRestaurantList.get(serial) || [];
-      const environments = findEnvironments(serial, restaurants);
+      const environments = findEnvironments(serial);
       out.push({ 
         ...base, 
         environments,
