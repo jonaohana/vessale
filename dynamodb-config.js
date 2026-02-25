@@ -164,7 +164,8 @@ function makeGraphQLRequest(query, variables = {}, endpoint, apiKey) {
         'Content-Type': 'application/json',
         'Content-Length': data.length,
         'x-api-key': apiKey
-      }
+      },
+      timeout: 10000 // 10 second timeout
     };
 
     const req = https.request(options, (res) => {
@@ -187,6 +188,11 @@ function makeGraphQLRequest(query, variables = {}, endpoint, apiKey) {
           reject(e);
         }
       });
+    });
+
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timeout after 10 seconds'));
     });
 
     req.on('error', (e) => {
